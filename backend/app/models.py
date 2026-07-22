@@ -73,6 +73,7 @@ class WikiPage(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(Text)
     folder_path: Mapped[str] = mapped_column(Text, index=True)  # 예: 두레테크/재무팀/경비 정산
+    page_type: Mapped[str] = mapped_column(String(10), default="concept")  # concept|entity|topic
     body: Mapped[str] = mapped_column(Text)  # markdown
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     lint_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -103,6 +104,7 @@ class WikiProposal(Base):
     page_id: Mapped[int | None] = mapped_column(ForeignKey("wiki_pages.id"), nullable=True)  # None=신규
     new_title: Mapped[str] = mapped_column(Text)
     new_folder_path: Mapped[str] = mapped_column(Text)
+    new_page_type: Mapped[str] = mapped_column(String(10), default="concept")
     new_body: Mapped[str] = mapped_column(Text)
     cause: Mapped[str] = mapped_column(String(20))  # ingest | lint | answer
     evidence_claim_ids: Mapped[list] = mapped_column(JSON, default=list)

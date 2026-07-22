@@ -4,7 +4,8 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 
 type Page = { id: number; title: string; folder_path: string; updated_at: string;
-  claims: number; confirmed: number; lint_open: number };
+  page_type: string; claims: number; confirmed: number; lint_open: number };
+const TYPE_LABEL: Record<string, string> = { concept: "개념", entity: "엔티티", topic: "주제" };
 
 function ago(iso: string) {
   const d = Math.floor((Date.now() - new Date(iso + (iso.endsWith("Z") ? "" : "Z")).getTime()) / 86400000);
@@ -60,6 +61,7 @@ export default function WikiTree() {
                   <div className="fx jb ac mb6">
                     <div className="fx ac gap8">
                       <div className="fs18 w7">{p.title}</div>
+                      <span className="bdg bdg-soft">{TYPE_LABEL[p.page_type] ?? "개념"}</span>
                       {p.lint_open > 0 && <span className="bdg bdg-attn">린트 {p.lint_open}건</span>}
                     </div>
                     {p.confirmed > 0

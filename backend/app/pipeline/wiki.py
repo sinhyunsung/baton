@@ -55,6 +55,7 @@ def propose_wiki_updates(db: Session, src: RawSource, claims: list[Claim], auto_
             page_id=page_id,
             new_title=action.get("title", "제목 없음"),
             new_folder_path=action.get("folder_path", "두레테크/공통"),
+            new_page_type=action.get("page_type", "concept"),
             new_body=action.get("body", ""),
             cause="ingest",
             evidence_claim_ids=[cid for cid in action.get("claim_ids", []) if cid],
@@ -74,9 +75,11 @@ def approve_proposal(db: Session, proposal_id: int, edited_body: str | None = No
     if prop.page_id:
         page = db.get(WikiPage, prop.page_id)
         page.title, page.folder_path, page.body = prop.new_title, prop.new_folder_path, body
+        page.page_type = prop.new_page_type or page.page_type
         page.updated_at = datetime.utcnow()
     else:
-        page = WikiPage(title=prop.new_title, folder_path=prop.new_folder_path, body=body)
+        page = WikiPage(title=prop.new_title, folder_path=prop.new_folder_path,
+                        page_type=prop.new_page_type or "concept", body=body)
         db.add(page)
         db.flush()
 

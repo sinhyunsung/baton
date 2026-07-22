@@ -13,6 +13,10 @@ export default function WikiPage({ params }: { params: { id: string } }) {
 
   const confirmed = page.claims.filter((c: any) => c.human_confirmed).length;
   const unconfirmed = page.claims.length - confirmed;
+  const TYPE_LABEL: any = { concept: "개념", entity: "엔티티", topic: "주제" };
+  // [[페이지 제목]] 내부 링크 → 검색 링크로 렌더 (위키 운영지침 §2-3)
+  const linkedBody = String(page.body).replace(/\[\[([^\]]+)\]\]/g,
+    (_m: string, t: string) => `[${t}](/search?q=${encodeURIComponent(t)})`);
 
   return (
     <section className="scr">
@@ -21,6 +25,7 @@ export default function WikiPage({ params }: { params: { id: string } }) {
         <div>
           <div className="fx ac gap8 mb10">
             <span className="fs14 sub">{page.folder_path.replaceAll("/", " › ")}</span>
+            <span className="bdg bdg-ink">{TYPE_LABEL[page.page_type] ?? page.page_type}</span>
             {confirmed > 0 && <span className="bdg bdg-success">확인됨 {confirmed}</span>}
             {page.open_issues.length > 0 && <span className="bdg bdg-attn">린트 {page.open_issues.length}건</span>}
           </div>
@@ -38,7 +43,7 @@ export default function WikiPage({ params }: { params: { id: string } }) {
             </div>
           )}
 
-          <div className="md"><ReactMarkdown>{page.body}</ReactMarkdown></div>
+          <div className="md"><ReactMarkdown>{linkedBody}</ReactMarkdown></div>
 
           {versions && (
             <div className="mt24">

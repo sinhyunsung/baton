@@ -58,6 +58,7 @@ export default function ProposalsPage() {
               <div className="fx jb ac mb4">
                 <div className="fs24 w5 disp">{cur.title}</div>
                 <span className={`bdg ${cur.page_id ? "bdg-attn" : "bdg-success"}`}>{cur.page_id ? "페이지 수정" : "신규 페이지"}</span>
+                <span className="bdg bdg-ink" style={{ marginLeft: 6 }}>{({ concept: "개념", entity: "엔티티", topic: "주제" } as any)[cur.page_type] ?? "개념"}</span>
               </div>
               <div className="fs13 stone mb20">
                 영향 범위 {cur.folder_path.replaceAll("/", " › ")} · 근거 클레임 {cur.evidence_claim_ids?.length ?? 0}개 ·{" "}

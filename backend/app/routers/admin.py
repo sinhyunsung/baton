@@ -185,6 +185,7 @@ def proposals(status: str = "pending", db: Session = Depends(get_session)):
             old_body = page.body if page else None
         out.append({
             "id": p.id, "page_id": p.page_id, "title": p.new_title,
+            "page_type": p.new_page_type,
             "folder_path": p.new_folder_path, "new_body": p.new_body, "old_body": old_body,
             "cause": p.cause, "evidence_claim_ids": p.evidence_claim_ids,
             "created_at": p.created_at.isoformat(),

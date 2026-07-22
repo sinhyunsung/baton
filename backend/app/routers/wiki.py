@@ -27,6 +27,7 @@ def wiki_tree(db: Session = Depends(get_session)):
         )
         out.append({
             "id": p.id, "title": p.title, "folder_path": p.folder_path,
+            "page_type": p.page_type,
             "updated_at": p.updated_at.isoformat(),
             "claims": n_claims, "confirmed": n_confirmed, "lint_open": n_lint,
         })
@@ -55,7 +56,8 @@ def wiki_page(page_id: int, db: Session = Depends(get_session)):
         select(LintIssue).where(LintIssue.page_id == page_id, LintIssue.status == "open")
     ).all()
     return {
-        "id": p.id, "title": p.title, "folder_path": p.folder_path, "body": p.body,
+        "id": p.id, "title": p.title, "folder_path": p.folder_path,
+        "page_type": p.page_type, "body": p.body,
         "updated_at": p.updated_at.isoformat(), "claims": claims,
         "open_issues": [{"id": i.id, "type": i.issue_type, "question": i.question} for i in issues],
     }
