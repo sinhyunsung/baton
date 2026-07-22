@@ -21,18 +21,20 @@ from ..pipeline.wiki import approve_proposal, reject_proposal
 router = APIRouter(prefix="/api", tags=["admin"])
 
 _job_lock = threading.Lock()
-_job_state = {"running": None}  # "ingest" | "lint" | None
+_job_state = {"running": None, "progress": {}}  # progress: 실행 중 배치의 실시간 현황
 
 
 def _run_bg(kind: str, fn):
+    """fn(db, progress_dict) 형태. progress_dict는 상태 API로 실시간 노출된다."""
     if not _job_lock.acquire(blocking=False):
         raise HTTPException(409, "다른 작업이 실행 중입니다")
     _job_state["running"] = kind
+    _job_state["progress"] = {}
 
     def worker():
         db = SessionLocal()
         try:
-            fn(db)
+            fn(db, _job_state["progress"])
         finally:
             db.close()
             _job_state["running"] = None
@@ -130,7 +132,7 @@ def ingest_upload(
     if saved == 0:
         raise HTTPException(400, "저장된 파일이 없습니다")
 
-    _run_bg("ingest", lambda db: run_ingest(db, limit=limit, auto_approve=auto_approve, base_dir=batch_dir))
+    _run_bg("ingest", lambda db, prog: run_ingest(db, limit=limit, auto_approve=auto_approve, base_dir=batch_dir, progress=prog))
     return {"started": True, "uploaded": saved, "limit": limit}
 
 
@@ -141,7 +143,7 @@ class IngestIn(BaseModel):
 
 @router.post("/ingest/scan")
 def ingest_scan(body: IngestIn):
-    _run_bg("ingest", lambda db: run_ingest(db, limit=body.limit, auto_approve=body.auto_approve))
+    _run_bg("ingest", lambda db, prog: run_ingest(db, limit=body.limit, auto_approve=body.auto_approve, progress=prog))
     return {"started": True, "limit": body.limit}
 
 
@@ -157,11 +159,12 @@ def ingest_status(db: Session = Depends(get_session)):
     n_claims = db.scalar(select(func.count()).select_from(Claim))
     return {
         "job_running": _job_state["running"],
+        "job_progress": _job_state["progress"],
         "by_status": by_status,
         "total_claims": n_claims,
         "recent": [{
             "id": s.id, "type": s.source_type, "title": s.title, "path": s.path,
-            "status": s.status, "error": s.error,
+            "status": s.status, "failed_stage": s.failed_stage, "error": s.error,
             "claims": db.scalar(select(func.count()).select_from(Claim).where(Claim.source_id == s.id)),
         } for s in recent],
     }
@@ -215,7 +218,7 @@ def proposal_reject(proposal_id: int, db: Session = Depends(get_session)):
 # ---------- 린트 ----------
 @router.post("/lint/run")
 def lint_run():
-    _run_bg("lint", run_lint)
+    _run_bg("lint", lambda db, prog: run_lint(db))
     return {"started": True}
 
 

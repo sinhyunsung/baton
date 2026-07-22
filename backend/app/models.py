@@ -31,6 +31,7 @@ class RawSource(Base):
     ingested_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     # 파이프라인 상태: collected → preprocessed → claimed → wiki_done / failed
     status: Mapped[str] = mapped_column(String(20), default="collected")
+    failed_stage: Mapped[str | None] = mapped_column(String(20), nullable=True)  # 실패 당시 마지막 완료 단계
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     claims: Mapped[list["Claim"]] = relationship(back_populates="source")

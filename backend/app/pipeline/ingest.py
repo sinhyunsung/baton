@@ -119,6 +119,7 @@ def process_source(db: Session, src: RawSource, auto_approve: bool = False) -> i
     try:
         body, meta = extract_body(src.content)
         if len(body.strip()) < 15:
+            src.failed_stage = "collected"
             src.status = "failed"
             src.error = "본문이 비어있거나 너무 짧음(15자 미만)"
             db.commit()
@@ -161,6 +162,7 @@ def process_source(db: Session, src: RawSource, auto_approve: bool = False) -> i
     except Exception as e:  # noqa: BLE001
         log.exception("인제스트 실패: %s", src.path)
         db.rollback()
+        src.failed_stage = src.status if src.status != "failed" else src.failed_stage
         src.status = "failed"
         src.error = str(e)[:500]
         db.commit()
@@ -178,23 +180,33 @@ def _render(c: dict) -> str:
 
 
 def run_ingest(db: Session, limit: int | None = None, auto_approve: bool = False,
-               base_dir: str | None = None) -> dict:
-    """지정 폴더 스캔 배치. limit로 처리 문서 수 제한(비용 가드)."""
+               base_dir: str | None = None, progress: dict | None = None) -> dict:
+    """지정 폴더 스캔 배치. limit로 처리 문서 수 제한(비용 가드).
+    progress 딕셔너리를 주면 실시간 현황(스캔/수집/처리/클레임/실패/현재 파일)을 갱신한다."""
     base = base_dir or get_source_dir(db)
     files = scan_files(base)
-    stats = {"scanned": len(files), "new": 0, "skipped": 0, "claims": 0, "failed": 0, "dir": base}
+    stats = {"scanned": len(files), "new": 0, "processed": 0, "skipped": 0,
+             "claims": 0, "failed": 0, "dir": base}
+    prog = progress if progress is not None else {}
+    prog.update(scanned=len(files), target=limit, new=0, processed=0,
+                claims=0, failed=0, skipped=0, current=None)
     for fp in files:
         if limit is not None and stats["new"] >= limit:
             break
         src = collect_one(db, fp, base)
         if src is None:
             stats["skipped"] += 1
+            prog["skipped"] = stats["skipped"]
             continue
         stats["new"] += 1
+        prog.update(new=stats["new"], current=src.title or src.path)
         n = process_source(db, src, auto_approve=auto_approve)
         stats["claims"] += n
+        stats["processed"] += 1
         if src.status == "failed":
             stats["failed"] += 1
+        prog.update(processed=stats["processed"], claims=stats["claims"],
+                    failed=stats["failed"], current=None)
         log.info("[%d/%s] %s → 클레임 %d (%s)", stats["new"], limit or "∞", src.path, n, src.status)
     return stats
 
@@ -204,6 +216,8 @@ def retry_failed(db: Session, auto_approve: bool = False) -> int:
     ok = 0
     for src in failed:
         src.error = None
+        src.failed_stage = None
+        src.status = "collected"
         if process_source(db, src, auto_approve=auto_approve):
             ok += 1
     return ok
