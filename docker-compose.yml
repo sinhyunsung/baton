@@ -1,0 +1,50 @@
+services:
+  baton_frontend:
+    container_name: baton_frontend
+    build: ./frontend
+    ports:
+      - "4567:3000"
+    environment:
+      - BACKEND_INTERNAL_URL=http://baton_backend:8000
+    depends_on:
+      - baton_backend
+    restart: unless-stopped
+
+  baton_backend:
+    container_name: baton_backend
+    build: ./backend
+    ports:
+      - "4568:8000"
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+psycopg://baton:baton@baton_db:5432/baton
+      - DATA_SOURCES_DIR=/data/sources
+      - AWS_REGION=us-east-1
+    volumes:
+      - ../EnterpriseRAG-Bench/generated_data/sources:/data/sources:ro
+      - /home/shs:/data/host:ro  # 로컬 폴더 지정 인제스트용 (호스트 홈 읽기 전용)
+    depends_on:
+      baton_db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  baton_db:
+    container_name: baton_db
+    image: pgvector/pgvector:pg16
+    ports:
+      - "4569:5432"
+    environment:
+      - POSTGRES_USER=baton
+      - POSTGRES_PASSWORD=baton
+      - POSTGRES_DB=baton
+    volumes:
+      - baton_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U baton"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  baton_pgdata:

@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+sqlalchemy>=2.0
+psycopg[binary]
+pgvector
+anthropic[bedrock]
+boto3
+pydantic
+python-dotenv
+typer
+sse-starlette
+python-multipart
