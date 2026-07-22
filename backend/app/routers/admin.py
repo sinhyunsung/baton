@@ -6,7 +6,7 @@ import time
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from ..db import SessionLocal, get_session
@@ -91,6 +91,20 @@ def source_detail(source_id: int, db: Session = Depends(get_session)):
                     "confidence": c.confidence, "human_confirmed": c.human_confirmed}
                    for c in claims],
     }
+
+
+# ---------- 데이터 리셋 ----------
+@router.post("/admin/reset")
+def reset_all(db: Session = Depends(get_session)):
+    """모든 수집 데이터·클레임·위키·이슈를 삭제한다 (설정은 유지). 실행 중이면 거부."""
+    if _job_state["running"]:
+        raise HTTPException(409, "작업 실행 중에는 리셋할 수 없습니다")
+    db.execute(text(
+        "TRUNCATE preprocessed, claim_wiki_link, wiki_versions, wiki_proposals, "
+        "lint_issues, lint_runs, claims, wiki_pages, raw_sources RESTART IDENTITY CASCADE"
+    ))
+    db.commit()
+    return {"reset": True}
 
 
 # ---------- 인제스트 (브라우저 업로드) ----------

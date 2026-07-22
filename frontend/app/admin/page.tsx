@@ -63,6 +63,17 @@ export default function AdminPage() {
     load();
   }
 
+  async function resetAll() {
+    if (!window.confirm("정말 초기화할까요?\n원본·클레임·위키·갱신안·확인요청이 전부 삭제됩니다. (되돌릴 수 없음)")) return;
+    if (!window.confirm("마지막 확인입니다. 모든 데이터를 삭제합니다.")) return;
+    setErr(""); setMsg("");
+    try {
+      await api("/api/admin/reset", { method: "POST" });
+      setMsg("데이터가 초기화되었습니다.");
+    } catch { setErr("작업 실행 중에는 리셋할 수 없습니다"); }
+    load();
+  }
+
   const running = summary?.job_running;
   const collected: Record<string, number> = summary?.collected ?? {};
   const types = Object.keys(collected);
@@ -132,6 +143,16 @@ export default function AdminPage() {
           })}
         </div>
       )}
+
+      <div className="card pad24 mt24" style={{ border: "1px solid #f3c9c9", borderRadius: 24 }}>
+        <div className="fx jb ac">
+          <div>
+            <div className="fs16 w7 mb4 red">데이터 리셋</div>
+            <div className="fs13 stone">원본·클레임·위키·갱신안·확인요청을 전부 삭제하고 처음부터 시작합니다. 폴더 설정은 유지됩니다.</div>
+          </div>
+          <button className="btn" style={{ background: "var(--crit)", color: "#fff" }} onClick={resetAll} disabled={!!running}>전체 초기화</button>
+        </div>
+      </div>
 
       <div className="card pad24 mt24" style={{ background: "var(--ink-deep)", border: "none", color: "#fff", borderRadius: 24 }}>
         <div className="fs16 w7 mb4">수집 원칙</div>
