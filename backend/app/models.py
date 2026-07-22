@@ -72,7 +72,7 @@ class WikiPage(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(Text)
-    folder_path: Mapped[str] = mapped_column(Text, index=True)  # 예: 두레테크/재무팀/경비 정산
+    folder_path: Mapped[str] = mapped_column(Text, index=True)  # 예: 재무팀/경비 정산
     page_type: Mapped[str] = mapped_column(String(10), default="concept")  # concept|entity|topic
     body: Mapped[str] = mapped_column(Text)  # markdown
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

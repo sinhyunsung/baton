@@ -54,7 +54,7 @@ def propose_wiki_updates(db: Session, src: RawSource, claims: list[Claim], auto_
         prop = WikiProposal(
             page_id=page_id,
             new_title=action.get("title", "제목 없음"),
-            new_folder_path=action.get("folder_path", "두레테크/공통"),
+            new_folder_path=action.get("folder_path", "공통"),
             new_page_type=action.get("page_type", "concept"),
             new_body=action.get("body", ""),
             cause="ingest",

@@ -40,7 +40,7 @@ export default function WikiTree() {
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: 24 }}>
           <div className="card-lg pad20" style={{ alignSelf: "flex-start" }}>
-            <div className="fs12 w7 sub mb10" style={{ paddingLeft: 12 }}>두레테크</div>
+            <div className="fs12 w7 sub mb10" style={{ paddingLeft: 12 }}>전체 위키</div>
             <div className={`treerow ${sel === null ? "on" : ""}`} onClick={() => setSel(null)}>
               <span>▾</span><span style={{ flex: 1, fontWeight: 700 }}>전체</span>
               <span className={`fs12 ${sel === null ? "" : "stone"}`}>{pages.length}</span>

@@ -57,7 +57,7 @@ def get_source_dir_display(db: Session) -> str:
     row = db.get(AppSetting, "source_dir_display")
     if row:
         return row.value
-    return "두레테크 데이터셋 (기본)"
+    return "데이터셋 (기본)"
 
 
 def scan_files(base_dir: str) -> list[str]:

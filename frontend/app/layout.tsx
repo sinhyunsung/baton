@@ -34,7 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </Link>
               <div style={{ flex: 1 }} />
               <TopSearch />
-              <div className="avatar">두</div>
+              <div className="avatar">나</div>
             </div>
             <div className="bodyrow">
               <Sidebar />
