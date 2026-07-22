@@ -57,6 +57,8 @@ class Claim(Base):
     scope: Mapped[str | None] = mapped_column(Text, nullable=True)
     time_scope: Mapped[str | None] = mapped_column(Text, nullable=True)
     claim_type: Mapped[str] = mapped_column(String(10), default="rule")  # rule | event
+    owner: Mapped[str | None] = mapped_column(String(60), nullable=True)    # 담당자 (핵심 필드)
+    project: Mapped[str | None] = mapped_column(String(80), nullable=True)  # 관련 프로젝트·시스템 (핵심 필드)
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
     human_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
     superseded: Mapped[bool] = mapped_column(Boolean, default=False)  # 모순 판정에서 밀린 클레임

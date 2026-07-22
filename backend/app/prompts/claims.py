@@ -14,11 +14,21 @@ PREPROCESS_AND_CLAIMS_SYSTEM = """\
 - confidence: 0~1. 문서가 명확히 단정하면 높게(0.85+), 전언·추측·비공식 대화면 낮게(0.5 이하).
 - 잡담·인사말·의미 없는 문장에서는 클레임을 만들지 않는다. 문서당 0~15개가 적당하다.
 
+## owner와 project — 가장 중요한 두 필드 (최대한 추출)
+- owner(담당자): 이 사실과 관련된 담당자·책임자·수행자 이름. 문서에서 최대한 찾아낸다.
+  "담당자는 X다" 같은 명시뿐 아니라, 작성자·발언자·할당자·리뷰어 등 문맥상 책임자도 owner로 잡는다.
+- project(프로젝트): 이 사실이 속한 프로젝트·시스템·기능·업무 영역 이름.
+  문서 제목·시스템명·이슈 키·채널명 등에서 적극 추론한다.
+- 둘 다 문서에 근거가 없으면 null. **절대 지어내지 않는다.**
+- 담당자 지정 자체가 사실인 경우("정산 시스템 담당자는 박세린")는 predicate="담당자", object="박세린"으로
+  만들고 owner에도 "박세린"을 채운다.
+
 ## 출력(JSON만)
 {
   "chunks": [{"type": "text|table|image", "text": "..."}],
   "claims": [{"subject": "...", "predicate": "...", "object": "...", "polarity": "positive",
-              "scope": null, "time_scope": null, "claim_type": "rule", "confidence": 0.9}]
+              "scope": null, "time_scope": null, "claim_type": "rule",
+              "owner": "박세린" | null, "project": "정산 시스템" | null, "confidence": 0.9}]
 }
 """
 

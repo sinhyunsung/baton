@@ -147,6 +147,7 @@ def process_source(db: Session, src: RawSource, auto_approve: bool = False) -> i
                     object=str(c["object"]), polarity=c.get("polarity", "positive"),
                     scope=c.get("scope"), time_scope=c.get("time_scope"),
                     claim_type=c.get("claim_type", "rule"),
+                    owner=(c.get("owner") or None), project=(c.get("project") or None),
                     confidence=float(c.get("confidence", 0.5)),
                     source_id=src.id, rendered_text=text, embedding=vec,
                 ))
@@ -174,6 +175,10 @@ def _render(c: dict) -> str:
     if c.get("polarity") == "negative":
         parts.append("아니다")
     extras = [x for x in (c.get("scope"), c.get("time_scope")) if x]
+    if c.get("project"):
+        extras.append(f"프로젝트: {c['project']}")
+    if c.get("owner"):
+        extras.append(f"담당: {c['owner']}")
     if extras:
         parts.append(f"({', '.join(extras)})")
     return " ".join(parts)

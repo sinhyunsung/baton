@@ -37,6 +37,7 @@ def propose_wiki_updates(db: Session, src: RawSource, claims: list[Claim], auto_
     candidates = find_candidate_pages(db, claims)
     claims_json = json.dumps(
         [{"id": c.id, "text": c.rendered_text, "claim_type": c.claim_type,
+          "owner": c.owner, "project": c.project,
           "confidence": c.confidence} for c in claims], ensure_ascii=False, indent=1)
     candidates_json = json.dumps(
         [{"id": p.id, "title": p.title, "folder_path": p.folder_path, "body": p.body[:3000]}
