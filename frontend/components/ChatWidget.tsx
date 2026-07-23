@@ -95,10 +95,17 @@ export default function ChatWidget() {
                 )}
                 {m.sources && m.sources.length > 0 && (
                   <div className="fx ac gap4 mt4" style={{ paddingLeft: 4, flexWrap: "wrap" }}>
-                    {m.sources.slice(0, 3).map((s, j) => (
+                    {/* 여러 클레임이 같은 페이지에 연결될 수 있으므로 페이지(제목) 기준으로 중복 제거 */}
+                    {m.sources.reduce((acc: { label: string; pageId?: number; confirmed: boolean; n: number }[], s) => {
+                      const label = s.pages[0]?.title ?? s.source_title;
+                      const ex = acc.find((u) => u.label === label);
+                      if (ex) { ex.confirmed = ex.confirmed || s.human_confirmed; ex.n += 1; }
+                      else acc.push({ label, pageId: s.pages[0]?.id, confirmed: s.human_confirmed, n: 1 });
+                      return acc;
+                    }, []).slice(0, 3).map((u, j) => (
                       <span key={j} className="srcchip"
-                        onClick={() => s.pages[0] && (window.location.href = `/wiki/${s.pages[0].id}`)}>
-                        {s.pages[0]?.title ?? s.source_title}{s.human_confirmed ? " ✓" : ""}
+                        onClick={() => u.pageId && (window.location.href = `/wiki/${u.pageId}`)}>
+                        {u.label}{u.n > 1 ? ` ·근거 ${u.n}` : ""}{u.confirmed ? " ✓" : ""}
                       </span>
                     ))}
                   </div>
