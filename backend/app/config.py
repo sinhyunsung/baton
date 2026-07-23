@@ -6,7 +6,17 @@ DATABASE_URL = os.environ.get(
 DATA_SOURCES_DIR = os.environ.get("DATA_SOURCES_DIR", "/data/sources")
 
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+
+# LLM 프로바이더: "bedrock" (Claude) | "deepseek" (직접 API, 저비용)
+LLM_PROVIDER = os.environ.get("BATON_LLM_PROVIDER", "bedrock").lower()
 LLM_MODEL = os.environ.get("BATON_LLM_MODEL", "us.anthropic.claude-sonnet-4-6")
+
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_MODEL = os.environ.get("BATON_DEEPSEEK_MODEL", "deepseek-chat")
+DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+DEEPSEEK_MAX_TOKENS = int(os.environ.get("BATON_DEEPSEEK_MAX_TOKENS", "8000"))  # deepseek 출력 한도
+
+# 임베딩은 프로바이더와 무관하게 Bedrock cohere 사용 (deepseek는 임베딩 API 없음, 비용도 미미)
 EMBED_MODEL = os.environ.get("BATON_EMBED_MODEL", "cohere.embed-multilingual-v3")
 EMBED_DIM = 1024
 
