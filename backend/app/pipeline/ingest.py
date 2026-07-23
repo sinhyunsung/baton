@@ -213,6 +213,10 @@ def run_ingest(db: Session, limit: int | None = None,
         prog.update(processed=stats["processed"], claims=stats["claims"],
                     failed=stats["failed"], current=None)
         log.info("[%d/%s] %s → 클레임 %d (%s)", stats["new"], limit or "∞", src.path, n, src.status)
+    # 배치가 끝나면 쌓인 집계로 기존 트리의 프로젝트명도 재정규화 (파편 폴더 병합)
+    from .projects import normalize_all
+
+    stats["project_merged"] = normalize_all(db)
     return stats
 
 

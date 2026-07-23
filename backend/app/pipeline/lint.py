@@ -7,6 +7,7 @@
 """
 import json
 import logging
+import re
 from datetime import datetime
 
 from sqlalchemy import or_, select
@@ -56,18 +57,46 @@ def _pair_has_open_issue(db: Session, a_id: int, b_id: int) -> bool:
     return any(a_id in (i.claim_ids or []) and b_id in (i.claim_ids or []) for i in issues)
 
 
+_STOPWORDS = {"및", "등", "관련", "그리고", "또한", "최종", "추가", "반드시", "즉시"}
+
+
+def _norm_tokens(text) -> set[str]:
+    toks = re.split(r"[\s,·/()\[\]\"']+", str(text or "").strip())
+    return {t for t in toks if t and t not in _STOPWORDS}
+
+
+def _values_equivalent(a, b, context: str = "") -> bool:
+    """표현만 다르고 의미가 같은 값인지 (엄격: 수식어·문맥 중복 제거 후 한쪽이 다른 쪽에 완전히 포함).
+    예: 'COO 최종 승인 필요' ⊂ '재무담당 및 COO 추가 승인 필요' → 같은 의미로 본다.
+    context: 두 클레임의 subject/scope 등 — 값에 섞여 든 조건이 상대 클레임에선 주어에 있을 수 있어,
+    문맥에 이미 있는 토큰은 비교에서 제외한다 ('50만원 초과 시 COO 승인' vs subject='50만원 초과 비용')."""
+    ctx = _norm_tokens(context)
+    A = {t for t in _norm_tokens(a) if t not in ctx and len(t) >= 2}
+    B = {t for t in _norm_tokens(b) if t not in ctx and len(t) >= 2}
+    if not A or not B:
+        return False
+    small, big = (A, B) if len(A) <= len(B) else (B, A)
+    return small <= big
+
+
+def _claims_context(a: Claim, b: Claim) -> str:
+    return " ".join(filter(None, [a.subject, b.subject, a.scope, b.scope, a.time_scope, b.time_scope]))
+
+
 def _rule_conflict_hint(a: Claim, b: Claim) -> str | None:
     """룰 필터: LLM 없이 충돌 후보 종류를 추정. None이면 후보 아님."""
     # 담당자 충돌: 같은 얘기(유사도는 호출부에서 확인)인데 담당자가 서로 다름
     if a.owner and b.owner and a.owner.strip() != b.owner.strip():
         return "owner"
-    # 참/거짓 충돌: 같은 값을 두고 긍정/부정이 갈림
-    if a.object.strip() == b.object.strip() and a.polarity != b.polarity:
+    same_meaning = _values_equivalent(a.object, b.object, context=_claims_context(a, b))
+    # 참/거짓 충돌: 같은 의미의 값을 두고 긍정/부정이 갈림
+    if same_meaning and a.polarity != b.polarity:
         return "polarity"
-    # 값 충돌: 값이 다름 (같으면 충돌일 수 없음)
-    if a.object.strip() != b.object.strip():
-        return "value"
-    return None
+    # 같은 의미(포함 관계)면 충돌이 아니다 — 표현 차이만 있는 쌍은 여기서 걸러 LLM도 안 태운다
+    if same_meaning:
+        return None
+    # 값 충돌: 의미가 다른 값
+    return "value"
 
 
 def _lint_page_claims(db: Session, page: WikiPage, run: LintRun):
@@ -130,7 +159,7 @@ def _lint_page_wiki(db: Session, page: WikiPage, run: LintRun):
         for claim, dist in rows:
             if 1 - dist < SIM_LINT_PAIR:
                 continue
-            same_value = str(wc.get("object", "")).strip() == claim.object.strip()
+            same_value = _values_equivalent(wc.get("object", ""), claim.object, context=" ".join(filter(None, [wc.get("subject"), claim.subject, claim.scope, claim.time_scope])))
             same_owner = not wc.get("owner") or not claim.owner or wc["owner"].strip() == claim.owner.strip()
             if same_value and same_owner:
                 continue

@@ -77,6 +77,9 @@ def apply_page_update(
     evidence_claim_ids: list[int],
 ) -> WikiPage:
     """페이지 생성/갱신을 즉시 적용하고 버전 스냅샷과 클레임 링크를 남긴다."""
+    from .projects import normalize_folder
+
+    folder_path = normalize_folder(db, folder_path)
     if page_id:
         page = db.get(WikiPage, page_id)
         if not page:

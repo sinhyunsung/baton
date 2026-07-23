@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, fmtDate, SOURCE_LABEL } from "@/lib/api";
+import { api, fmtDate } from "@/lib/api";
+import ClaimCard from "@/components/ClaimCard";
 
 export default function InboxPage() {
   const [issues, setIssues] = useState<any[]>([]);
@@ -71,31 +72,30 @@ export default function InboxPage() {
                 {cur.detail ?? "확인이 필요합니다."} 답변이 확정되면 소스 클레임에 human_confirmed가 기록됩니다.
               </div>
 
-              {(cur.claims?.length > 0 || cur.options?.length > 0) && (
+              {cur.claims?.length >= 2 ? (
+                /* 모순: 충돌하는 두 클레임을 나란히 전체 비교 */
                 <div className="two mb24" style={{ gap: 14 }}>
-                  {cur.claims?.slice(0, 1).map((c: any) => (
-                    <div key={c.id} style={{ borderRadius: 16, padding: 20, background: "rgba(0,145,255,.08)" }}>
-                      <div className="fs12 w7 sub mb8">소스 클레임 #{c.id}</div>
-                      <div className="fs16 w7 mb4">{c.text}</div>
-                      <div className="fs12 stone">확신도 {c.confidence}</div>
-                    </div>
-                  ))}
-                  {cur.options?.slice(0, cur.claims?.length ? 1 : 2).map((o: string, i: number) => (
-                    <div key={i} style={{ borderRadius: 16, padding: 20, background: "#fdeef0" }}>
-                      <div className="fs12 w7 sub mb8">충돌 값 후보</div>
-                      <div className="fs16 w7 mb4">{o}</div>
-                      <div className="fs12 stone">위키/다른 소스 기재 값</div>
-                    </div>
-                  ))}
-                  {cur.type === "gap" && !cur.options?.length && (
-                    <div style={{ borderRadius: 16, padding: 20, background: "#fdeef0" }}>
-                      <div className="fs12 w7 sub mb8">현재 상태</div>
-                      <div className="fs16 w7 mb4">정보 없음</div>
-                      <div className="fs12 stone">어떤 소스에도 존재하지 않음</div>
-                    </div>
-                  )}
+                  <ClaimCard claim={cur.claims[0]} label="클레임 A" tone="blue" />
+                  <ClaimCard claim={cur.claims[1]} label="클레임 B" tone="red" />
                 </div>
-              )}
+              ) : cur.claims?.length === 1 ? (
+                /* 위키↔소스 표류: 소스 클레임 + 위키 기재 값 */
+                <div className="two mb24" style={{ gap: 14 }}>
+                  <ClaimCard claim={cur.claims[0]} label="소스 클레임" tone="blue" />
+                  {cur.options?.filter((o: string) => o !== cur.claims[0]?.object).slice(0, 1).map((o: string) => (
+                    <div key={o} style={{ borderRadius: 16, padding: "16px 18px", background: "#fdeef0", borderLeft: "3px solid #d64550" }}>
+                      <div className="fs12 w7 sub mb8">위키 기재 값</div>
+                      <div className="fs17 w7">{o}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : cur.type === "gap" ? (
+                <div className="mb24" style={{ borderRadius: 16, padding: "16px 18px", background: "#fdeef0", borderLeft: "3px solid #d64550", maxWidth: 480 }}>
+                  <div className="fs12 w7 sub mb8">현재 상태</div>
+                  <div className="fs16 w7 mb4">정보 없음</div>
+                  <div className="fs12 stone">어떤 소스에도 존재하지 않아 답변으로 채워야 합니다</div>
+                </div>
+              ) : null}
 
               <div className="fx gap10" style={{ flexWrap: "wrap" }}>
                 {(cur.options ?? []).map((o: string) => (

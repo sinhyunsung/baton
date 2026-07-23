@@ -207,6 +207,19 @@ class AnswerIn(BaseModel):
     answer: str
 
 
+def _claim_full(db: Session, c: Claim) -> dict:
+    """확인 요청함에서 A/B 비교에 쓰는 클레임 전체 정보 (출처 문서 포함)."""
+    src = db.get(RawSource, c.source_id) if c.source_id else None
+    return {
+        "id": c.id, "text": c.rendered_text,
+        "subject": c.subject, "predicate": c.predicate, "object": c.object,
+        "polarity": c.polarity, "owner": c.owner, "project": c.project,
+        "scope": c.scope, "time_scope": c.time_scope,
+        "confidence": c.confidence, "human_confirmed": c.human_confirmed,
+        "source": {"type": src.source_type, "title": src.title, "path": src.path} if src else None,
+    }
+
+
 @router.get("/lint/issues")
 def lint_issues(status: str = "open", db: Session = Depends(get_session)):
     rows = db.scalars(
@@ -221,9 +234,7 @@ def lint_issues(status: str = "open", db: Session = Depends(get_session)):
             "options": i.options, "assignee": i.assignee_name, "status": i.status,
             "answer": i.answer, "created_at": i.created_at.isoformat(),
             "page": {"id": page.id, "title": page.title} if page else None,
-            "claims": [{"id": c.id, "text": c.rendered_text,
-                        "source_id": c.source_id, "confidence": c.confidence}
-                       for c in claims if c],
+            "claims": [_claim_full(db, c) for c in claims if c],
         })
     counts = dict(db.execute(
         select(LintIssue.issue_type, func.count())
