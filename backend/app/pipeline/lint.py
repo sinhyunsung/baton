@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 
 from .. import llm
 from ..config import SIM_LINT_PAIR
-from ..models import Claim, ClaimWikiLink, LintIssue, LintRun, WikiPage, WikiProposal
+from ..models import Claim, ClaimWikiLink, LintIssue, LintRun, WikiPage
+from .wiki import apply_page_update
 from ..prompts.lint import GAP_SYSTEM, VERDICT_SYSTEM, WIKI_CLAIMS_SYSTEM
 
 log = logging.getLogger("baton.lint")
@@ -199,7 +200,7 @@ def answer_issue(db: Session, issue_id: int, answer: str) -> LintIssue:
     issue.resolved_at = datetime.utcnow()
     db.commit()
 
-    # 위키 갱신안 생성 (사람이 검토 후 반영)
+    # 확인된 답변을 위키에 즉시 반영
     if issue.page_id:
         page = db.get(WikiPage, issue.page_id)
         if page:
@@ -208,11 +209,9 @@ def answer_issue(db: Session, issue_id: int, answer: str) -> LintIssue:
                 "확인된 값에는 '(확인됨)' 표기를 붙이고, 밀려난 값은 '반론과 불확실성'에서 제거하거나 이력으로 남긴다. 본문만 출력.",
                 f"# {page.title}\n\n{page.body}\n\n## 확인된 답변\n질문: {issue.question}\n답변: {answer}",
             )
-            db.add(WikiProposal(
-                page_id=page.id, new_title=page.title, new_folder_path=page.folder_path,
-                new_page_type=page.page_type,
-                new_body=new_body.strip(), cause="answer",
+            apply_page_update(
+                db, page_id=page.id, title=page.title, folder_path=page.folder_path,
+                page_type=page.page_type, body=new_body.strip(), cause="answer",
                 evidence_claim_ids=[confirmed_claim.id] if confirmed_claim else [],
-            ))
-            db.commit()
+            )
     return issue

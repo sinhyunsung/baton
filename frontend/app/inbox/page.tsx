@@ -36,7 +36,7 @@ export default function InboxPage() {
       </div>
       <div className="lede mb24">
         린트가 찾은 모순·빈틈이 공용 역질문으로 올라옵니다. 별도 로그인이 없어 누구나 답변할 수 있고(담당자는 태그로 표시만),
-        답변이 확정되면 소스 클레임에 human_confirmed가 기록되고 위키 갱신안이 만들어집니다.
+        답변이 확정되면 소스 클레임에 human_confirmed가 기록되고 위키에 즉시 반영됩니다.
       </div>
 
       {issues.length === 0 ? (
@@ -122,7 +122,7 @@ export default function InboxPage() {
                 <span className="bdg bdg-success" style={{ marginRight: 8 }}>답변됨</span>
                 <span className="fs14">{it.question}</span>
                 <div className="fs12 stone mt4">
-                  → {it.answer} · {fmtDate(it.created_at)} · 위키 갱신안 생성됨 (<Link href="/proposals">검토</Link>)
+                  → {it.answer} · {fmtDate(it.created_at)} · 위키에 반영됨
                 </div>
               </div>
             ))}

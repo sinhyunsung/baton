@@ -100,22 +100,6 @@ class ClaimWikiLink(Base):
     page_id: Mapped[int] = mapped_column(ForeignKey("wiki_pages.id"), index=True)
 
 
-class WikiProposal(Base):
-    __tablename__ = "wiki_proposals"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    page_id: Mapped[int | None] = mapped_column(ForeignKey("wiki_pages.id"), nullable=True)  # None=신규
-    new_title: Mapped[str] = mapped_column(Text)
-    new_folder_path: Mapped[str] = mapped_column(Text)
-    new_page_type: Mapped[str] = mapped_column(String(10), default="concept")
-    new_body: Mapped[str] = mapped_column(Text)
-    cause: Mapped[str] = mapped_column(String(20))  # ingest | lint | answer
-    evidence_claim_ids: Mapped[list] = mapped_column(JSON, default=list)
-    status: Mapped[str] = mapped_column(String(12), default="pending")  # pending|approved|rejected
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-
-
 class LintIssue(Base):
     __tablename__ = "lint_issues"
 

@@ -25,7 +25,7 @@ function Track({ status, failedStage }: { status: string; failedStage?: string |
         })}
       </div>
       <div className="progmeta">
-        {status === "wiki_done" ? <><b>5/5</b> · 위키 갱신안까지 완료</>
+        {status === "wiki_done" ? <><b>5/5</b> · 위키 반영까지 완료</>
           : status === "failed" ? <><b>{done + 1}단계({STAGE_LABELS[done]})</b>에서 실패</>
           : <><b>{done}/5</b> · {STAGE_LABELS[done]} 진행 중</>}
       </div>
@@ -56,7 +56,7 @@ export default function IngestPage() {
         </div>
       </div>
       <div className="lede mb24">
-        수집 → 원본 불변 저장(sha256·버전) → 조각 분해·텍스트화 → 클레임 추출 → 위키 갱신안.
+        수집 → 원본 불변 저장(sha256·버전) → 조각 분해·텍스트화 → 클레임 추출 → 위키 반영.
         표는 event 클레임으로 분기되어 모순 검사에서 제외됩니다.
       </div>
 

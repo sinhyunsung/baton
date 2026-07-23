@@ -10,13 +10,12 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from ..db import SessionLocal, get_session
-from ..models import Claim, LintIssue, LintRun, RawSource, WikiPage, WikiProposal
+from ..models import Claim, LintIssue, LintRun, RawSource, WikiPage
 from ..pipeline.ingest import (
     get_source_dir, get_source_dir_display, resolve_dir, retry_failed,
     run_ingest, scan_files, set_source_dir,
 )
 from ..pipeline.lint import answer_issue, run_lint
-from ..pipeline.wiki import approve_proposal, reject_proposal
 
 router = APIRouter(prefix="/api", tags=["admin"])
 
@@ -100,7 +99,7 @@ def reset_all(db: Session = Depends(get_session)):
     if _job_state["running"]:
         raise HTTPException(409, "작업 실행 중에는 리셋할 수 없습니다")
     db.execute(text(
-        "TRUNCATE preprocessed, claim_wiki_link, wiki_versions, wiki_proposals, "
+        "TRUNCATE preprocessed, claim_wiki_link, wiki_versions, "
         "lint_issues, lint_runs, claims, wiki_pages, raw_sources RESTART IDENTITY CASCADE"
     ))
     db.commit()
@@ -122,7 +121,6 @@ def ingest_upload(
     files: list[UploadFile] = File(...),
     paths: list[str] = Form(...),
     limit: int | None = Form(None),
-    auto_approve: bool = Form(False),
 ):
     """접속자 PC에서 올린 파일/폴더를 스테이징에 저장 후 인제스트 배치 시작."""
     if len(files) != len(paths):
@@ -146,18 +144,17 @@ def ingest_upload(
     if saved == 0:
         raise HTTPException(400, "저장된 파일이 없습니다")
 
-    _run_bg("ingest", lambda db, prog: run_ingest(db, limit=limit, auto_approve=auto_approve, base_dir=batch_dir, progress=prog))
+    _run_bg("ingest", lambda db, prog: run_ingest(db, limit=limit, base_dir=batch_dir, progress=prog))
     return {"started": True, "uploaded": saved, "limit": limit}
 
 
 class IngestIn(BaseModel):
     limit: int | None = 20
-    auto_approve: bool = False
 
 
 @router.post("/ingest/scan")
 def ingest_scan(body: IngestIn):
-    _run_bg("ingest", lambda db, prog: run_ingest(db, limit=body.limit, auto_approve=body.auto_approve, progress=prog))
+    _run_bg("ingest", lambda db, prog: run_ingest(db, limit=body.limit, progress=prog))
     return {"started": True, "limit": body.limit}
 
 
@@ -182,51 +179,6 @@ def ingest_status(db: Session = Depends(get_session)):
             "claims": db.scalar(select(func.count()).select_from(Claim).where(Claim.source_id == s.id)),
         } for s in recent],
     }
-
-
-# ---------- 갱신안 ----------
-class ApproveIn(BaseModel):
-    edited_body: str | None = None
-
-
-@router.get("/proposals")
-def proposals(status: str = "pending", db: Session = Depends(get_session)):
-    rows = db.scalars(
-        select(WikiProposal).where(WikiProposal.status == status).order_by(WikiProposal.id.desc())
-    ).all()
-    out = []
-    for p in rows:
-        old_body = None
-        if p.page_id:
-            page = db.get(WikiPage, p.page_id)
-            old_body = page.body if page else None
-        out.append({
-            "id": p.id, "page_id": p.page_id, "title": p.new_title,
-            "page_type": p.new_page_type,
-            "folder_path": p.new_folder_path, "new_body": p.new_body, "old_body": old_body,
-            "cause": p.cause, "evidence_claim_ids": p.evidence_claim_ids,
-            "created_at": p.created_at.isoformat(),
-        })
-    return {"proposals": out, "pending_count": db.scalar(
-        select(func.count()).select_from(WikiProposal).where(WikiProposal.status == "pending"))}
-
-
-@router.post("/proposals/{proposal_id}/approve")
-def proposal_approve(proposal_id: int, body: ApproveIn, db: Session = Depends(get_session)):
-    try:
-        page = approve_proposal(db, proposal_id, edited_body=body.edited_body)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    return {"page_id": page.id}
-
-
-@router.post("/proposals/{proposal_id}/reject")
-def proposal_reject(proposal_id: int, db: Session = Depends(get_session)):
-    try:
-        reject_proposal(db, proposal_id)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    return {"ok": True}
 
 
 # ---------- 린트 ----------

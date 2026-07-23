@@ -1,4 +1,4 @@
-"""위키 갱신안 생성·승인. LLM은 위키를 직접 수정하지 않고 갱신안(proposal)만 만든다."""
+"""위키 갱신 적용. LLM이 결정한 갱신(create/update)을 즉시 위키에 반영한다 (버전 스냅샷 보존)."""
 import json
 import logging
 from datetime import datetime
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from .. import llm
 from ..config import SIM_WIKI_MATCH
-from ..models import Claim, ClaimWikiLink, RawSource, WikiPage, WikiProposal, WikiVersion
+from ..models import Claim, ClaimWikiLink, RawSource, WikiPage, WikiVersion
 from ..prompts.wiki import WIKI_DECIDE_SYSTEM, WIKI_DECIDE_USER
 
 log = logging.getLogger("baton.wiki")
@@ -33,7 +33,8 @@ def find_candidate_pages(db: Session, claims: list[Claim], k: int = 5) -> list[W
     return [db.get(WikiPage, pid) for pid, _ in top if db.get(WikiPage, pid)]
 
 
-def propose_wiki_updates(db: Session, src: RawSource, claims: list[Claim], auto_approve: bool = False):
+def apply_wiki_updates(db: Session, src: RawSource, claims: list[Claim]):
+    """클레임을 위키에 즉시 반영: LLM이 create/update를 결정하면 바로 적용한다."""
     candidates = find_candidate_pages(db, claims)
     claims_json = json.dumps(
         [{"id": c.id, "text": c.rendered_text, "claim_type": c.claim_type,
@@ -52,55 +53,49 @@ def propose_wiki_updates(db: Session, src: RawSource, claims: list[Claim], auto_
     )
     for action in result.get("actions", []):
         page_id = action.get("page_id") if action.get("kind") == "update" else None
-        prop = WikiProposal(
+        apply_page_update(
+            db,
             page_id=page_id,
-            new_title=action.get("title", "제목 없음"),
-            new_folder_path=action.get("folder_path", "공통"),
-            new_page_type=action.get("page_type", "concept"),
-            new_body=action.get("body", ""),
+            title=action.get("title", "제목 없음"),
+            folder_path=action.get("folder_path", "공통"),
+            page_type=action.get("page_type", "concept"),
+            body=action.get("body", ""),
             cause="ingest",
             evidence_claim_ids=[cid for cid in action.get("claim_ids", []) if cid],
         )
-        db.add(prop)
-        db.commit()
-        if auto_approve:
-            approve_proposal(db, prop.id)
 
 
-def approve_proposal(db: Session, proposal_id: int, edited_body: str | None = None) -> WikiPage:
-    prop = db.get(WikiProposal, proposal_id)
-    if not prop or prop.status != "pending":
-        raise ValueError("대기 중인 갱신안이 아님")
-    body = edited_body if edited_body is not None else prop.new_body
-
-    if prop.page_id:
-        page = db.get(WikiPage, prop.page_id)
-        page.title, page.folder_path, page.body = prop.new_title, prop.new_folder_path, body
-        page.page_type = prop.new_page_type or page.page_type
+def apply_page_update(
+    db: Session,
+    *,
+    page_id: int | None,
+    title: str,
+    folder_path: str,
+    page_type: str,
+    body: str,
+    cause: str,
+    evidence_claim_ids: list[int],
+) -> WikiPage:
+    """페이지 생성/갱신을 즉시 적용하고 버전 스냅샷과 클레임 링크를 남긴다."""
+    if page_id:
+        page = db.get(WikiPage, page_id)
+        if not page:
+            raise ValueError(f"갱신 대상 페이지 없음: {page_id}")
+        page.title, page.folder_path, page.body = title, folder_path, body
+        page.page_type = page_type or page.page_type
         page.updated_at = datetime.utcnow()
     else:
-        page = WikiPage(title=prop.new_title, folder_path=prop.new_folder_path,
-                        page_type=prop.new_page_type or "concept", body=body)
+        page = WikiPage(title=title, folder_path=folder_path,
+                        page_type=page_type or "concept", body=body)
         db.add(page)
         db.flush()
 
-    db.add(WikiVersion(page_id=page.id, body=body, cause=prop.cause))
+    db.add(WikiVersion(page_id=page.id, body=body, cause=cause))
     existing = {
         l.claim_id for l in db.scalars(select(ClaimWikiLink).where(ClaimWikiLink.page_id == page.id))
     }
-    for cid in prop.evidence_claim_ids or []:
+    for cid in evidence_claim_ids or []:
         if cid not in existing and db.get(Claim, cid):
             db.add(ClaimWikiLink(claim_id=cid, page_id=page.id))
-    prop.status = "approved"
-    prop.resolved_at = datetime.utcnow()
     db.commit()
     return page
-
-
-def reject_proposal(db: Session, proposal_id: int):
-    prop = db.get(WikiProposal, proposal_id)
-    if not prop or prop.status != "pending":
-        raise ValueError("대기 중인 갱신안이 아님")
-    prop.status = "rejected"
-    prop.resolved_at = datetime.utcnow()
-    db.commit()

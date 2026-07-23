@@ -12,7 +12,7 @@ from .. import llm
 from ..config import DATA_SOURCES_DIR
 from ..models import Claim, Preprocessed, RawSource
 from ..prompts.claims import PREPROCESS_AND_CLAIMS_SYSTEM, PREPROCESS_AND_CLAIMS_USER
-from .wiki import propose_wiki_updates
+from .wiki import apply_wiki_updates
 
 log = logging.getLogger("baton.ingest")
 
@@ -114,7 +114,7 @@ def extract_body(content: dict) -> tuple[str, dict]:
     return body, meta
 
 
-def process_source(db: Session, src: RawSource, auto_approve: bool = False) -> int:
+def process_source(db: Session, src: RawSource) -> int:
     """전처리+클레임 추출+임베딩+위키 갱신안. 반환: 저장된 클레임 수."""
     try:
         body, meta = extract_body(src.content)
@@ -156,7 +156,7 @@ def process_source(db: Session, src: RawSource, auto_approve: bool = False) -> i
         db.commit()
 
         if claims:
-            propose_wiki_updates(db, src, claims, auto_approve=auto_approve)
+            apply_wiki_updates(db, src, claims)
         src.status = "wiki_done"
         db.commit()
         return len(claims)
@@ -184,7 +184,7 @@ def _render(c: dict) -> str:
     return " ".join(parts)
 
 
-def run_ingest(db: Session, limit: int | None = None, auto_approve: bool = False,
+def run_ingest(db: Session, limit: int | None = None,
                base_dir: str | None = None, progress: dict | None = None) -> dict:
     """지정 폴더 스캔 배치. limit로 처리 문서 수 제한(비용 가드).
     progress 딕셔너리를 주면 실시간 현황(스캔/수집/처리/클레임/실패/현재 파일)을 갱신한다."""
@@ -205,7 +205,7 @@ def run_ingest(db: Session, limit: int | None = None, auto_approve: bool = False
             continue
         stats["new"] += 1
         prog.update(new=stats["new"], current=src.title or src.path)
-        n = process_source(db, src, auto_approve=auto_approve)
+        n = process_source(db, src)
         stats["claims"] += n
         stats["processed"] += 1
         if src.status == "failed":
@@ -216,13 +216,13 @@ def run_ingest(db: Session, limit: int | None = None, auto_approve: bool = False
     return stats
 
 
-def retry_failed(db: Session, auto_approve: bool = False) -> int:
+def retry_failed(db: Session) -> int:
     failed = db.scalars(select(RawSource).where(RawSource.status == "failed")).all()
     ok = 0
     for src in failed:
         src.error = None
         src.failed_stage = None
         src.status = "collected"
-        if process_source(db, src, auto_approve=auto_approve):
+        if process_source(db, src):
             ok += 1
     return ok

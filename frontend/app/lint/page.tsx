@@ -59,7 +59,7 @@ export default function LintPage() {
         <div className="fx ac gap12">
           <div className="fs14 chc" style={{ flex: 1 }}>
             생성된 모순·빈틈은 <b>확인 요청함</b>에 역질문으로 게시되며, 답변 시 소스 클레임에 human_confirmed가
-            기록되고 위키 갱신안이 만들어집니다.
+            기록되고 위키에 즉시 반영됩니다.
           </div>
           <button className="btn btn-ghost" onClick={() => router.push("/inbox")}>확인 요청함 열기</button>
         </div>

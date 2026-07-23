@@ -89,10 +89,10 @@ export default function WikiTree() {
       </div>
       <div className="lede mb24">
         부서·프로젝트·공통 계층으로 저장됩니다. 폴더를 클릭하면 하위 폴더의 페이지까지 함께 표시되고,
-        ▾를 누르면 접을 수 있어요. 위키는 시스템만 갱신하며, 반영 전 갱신안 승인을 거칩니다.
+        ▾를 누르면 접을 수 있어요. 위키는 시스템이 자동으로 갱신합니다.
       </div>
       {pages.length === 0 ? (
-        <div className="card-lg pad24 chc">아직 위키 페이지가 없습니다. 데이터 소스에서 인제스트를 실행하고 <Link href="/proposals">갱신안</Link>을 승인해보세요.</div>
+        <div className="card-lg pad24 chc">아직 위키 페이지가 없습니다. 데이터 소스에서 인제스트를 실행해보세요.</div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: 24 }}>
           <div className="card-lg pad20" style={{ alignSelf: "flex-start" }}>

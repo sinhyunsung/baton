@@ -19,7 +19,6 @@ export default function AdminPage() {
   const [summary, setSummary] = useState<any>(null);
   const [picked, setPicked] = useState<File[]>([]);
   const [limit, setLimit] = useState(10);
-  const [autoApprove, setAutoApprove] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
@@ -48,11 +47,10 @@ export default function AdminPage() {
         fd.append("paths", (f as any).webkitRelativePath || f.name);
       }
       if (limit) fd.append("limit", String(limit));
-      fd.append("auto_approve", String(autoApprove));
       const res = await fetch("/api/ingest/upload", { method: "POST", body: fd });
       if (!res.ok) throw new Error(await res.text());
       const r = await res.json();
-      setMsg(`업로드 완료 ${r.uploaded}건 → 인제스트 시작 (신규 ${limit}건 처리${autoApprove ? " · 갱신안 자동 승인" : ""}). 인제스트 현황에서 진행을 확인하세요.`);
+      setMsg(`업로드 완료 ${r.uploaded}건 → 인제스트 시작 (신규 ${limit}건 처리). 인제스트 현황에서 진행을 확인하세요.`);
       setPicked([]);
       if (dirRef.current) dirRef.current.value = "";
       if (fileRef.current) fileRef.current.value = "";
@@ -64,7 +62,7 @@ export default function AdminPage() {
   }
 
   async function resetAll() {
-    if (!window.confirm("정말 초기화할까요?\n원본·클레임·위키·갱신안·확인요청이 전부 삭제됩니다. (되돌릴 수 없음)")) return;
+    if (!window.confirm("정말 초기화할까요?\n원본·클레임·위키·확인요청이 전부 삭제됩니다. (되돌릴 수 없음)")) return;
     if (!window.confirm("마지막 확인입니다. 모든 데이터를 삭제합니다.")) return;
     setErr(""); setMsg("");
     try {
@@ -102,9 +100,6 @@ export default function AdminPage() {
           <span className="fs12 stone">처리 문서 수</span>
           <input className="inp" type="number" min={1} value={limit} style={{ width: 84, height: 40 }}
             onChange={(e) => setLimit(parseInt(e.target.value || "1"))} />
-          <label className="fs12 stone fx ac gap4" style={{ cursor: "pointer" }}>
-            <input type="checkbox" checked={autoApprove} onChange={(e) => setAutoApprove(e.target.checked)} /> 갱신안 자동 승인
-          </label>
           <button className="btn btn-cta" onClick={upload} disabled={!picked.length || uploading || !!running}>
             {uploading ? "업로드 중…" : running === "ingest" ? "인제스트 실행 중…" : `업로드 & 인제스트${picked.length ? ` (${picked.length})` : ""}`}
           </button>
@@ -148,7 +143,7 @@ export default function AdminPage() {
         <div className="fx jb ac">
           <div>
             <div className="fs16 w7 mb4 red">데이터 리셋</div>
-            <div className="fs13 stone">원본·클레임·위키·갱신안·확인요청을 전부 삭제하고 처음부터 시작합니다. 폴더 설정은 유지됩니다.</div>
+            <div className="fs13 stone">원본·클레임·위키·확인요청을 전부 삭제하고 처음부터 시작합니다. 폴더 설정은 유지됩니다.</div>
           </div>
           <button className="btn" style={{ background: "var(--crit)", color: "#fff" }} onClick={resetAll} disabled={!!running}>전체 초기화</button>
         </div>
@@ -158,7 +153,7 @@ export default function AdminPage() {
         <div className="fs16 w7 mb4">수집 원칙</div>
         <div className="fs14" style={{ opacity: 0.7 }}>
           동일 해시(sha256)는 스킵, 같은 경로·다른 해시는 새 버전으로 저장. 원본은 불변 보존되며 전처리·교정은 사본에만 적용됩니다.
-          업로드 파일은 서버 스테이징에 저장된 후 수집 → 클레임 추출 → 위키 갱신안 순으로 처리됩니다.
+          업로드 파일은 서버 스테이징에 저장된 후 수집 → 클레임 추출 → 위키 반영 순으로 처리됩니다.
         </div>
       </div>
     </section>
