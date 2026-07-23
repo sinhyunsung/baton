@@ -5,7 +5,8 @@ import { api } from "@/lib/api";
 
 const NAV: { group: string; items: { href: string; label: string; badge?: "issues" }[] }[] = [
   { group: "위키", items: [
-    { href: "/wiki", label: "트리" },
+    { href: "/wiki", label: "위키" },
+    { href: "/claims", label: "클레임" },
     { href: "/search", label: "검색" },
   ]},
   { group: "데이터", items: [

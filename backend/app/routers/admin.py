@@ -6,7 +6,7 @@ import time
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from ..db import SessionLocal, get_session
@@ -216,8 +216,40 @@ def _claim_full(db: Session, c: Claim) -> dict:
         "polarity": c.polarity, "owner": c.owner, "project": c.project,
         "scope": c.scope, "time_scope": c.time_scope,
         "confidence": c.confidence, "human_confirmed": c.human_confirmed,
+        "superseded": c.superseded, "claim_type": c.claim_type,
         "source": {"type": src.source_type, "title": src.title, "path": src.path} if src else None,
     }
+
+
+@router.get("/claims")
+def claims_list(q: str = "", owner: str = "", project: str = "", status: str = "",
+                limit: int = 60, offset: int = 0, db: Session = Depends(get_session)):
+    """클레임 브라우저: 검색·필터 (담당자/프로젝트/상태)."""
+    stmt = select(Claim)
+    if q:
+        like = f"%{q}%"
+        stmt = stmt.where(or_(Claim.rendered_text.ilike(like), Claim.subject.ilike(like),
+                              Claim.object.ilike(like), Claim.owner.ilike(like), Claim.project.ilike(like)))
+    if owner:
+        stmt = stmt.where(Claim.owner == owner)
+    if project:
+        stmt = stmt.where(Claim.project == project)
+    if status == "confirmed":
+        stmt = stmt.where(Claim.human_confirmed.is_(True))
+    elif status == "unconfirmed":
+        stmt = stmt.where(Claim.human_confirmed.is_(False), Claim.superseded.is_(False))
+    elif status == "superseded":
+        stmt = stmt.where(Claim.superseded.is_(True))
+    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
+    rows = db.scalars(stmt.order_by(Claim.id.desc()).limit(limit).offset(offset)).all()
+    owners = [{"name": o, "count": n} for o, n in db.execute(
+        select(Claim.owner, func.count()).where(Claim.owner.isnot(None))
+        .group_by(Claim.owner).order_by(func.count().desc()).limit(24))]
+    projects = [{"name": pj, "count": n} for pj, n in db.execute(
+        select(Claim.project, func.count()).where(Claim.project.isnot(None))
+        .group_by(Claim.project).order_by(func.count().desc()).limit(24))]
+    return {"total": total, "items": [_claim_full(db, c) for c in rows],
+            "owners": owners, "projects": projects}
 
 
 @router.get("/lint/issues")

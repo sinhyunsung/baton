@@ -2,7 +2,8 @@
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import Link from "next/link";
-import { api, fmtDate, SOURCE_LABEL } from "@/lib/api";
+import { api, fmtDate } from "@/lib/api";
+import ClaimCard from "@/components/ClaimCard";
 
 export default function WikiPage({ params }: { params: { id: string } }) {
   const [page, setPage] = useState<any>(null);
@@ -71,21 +72,10 @@ export default function WikiPage({ params }: { params: { id: string } }) {
               <div className="fs14 w7">근거 소스 클레임</div>
               <span className="fs12 stone">확인됨 {confirmed} · 미확인 {unconfirmed}</span>
             </div>
-            <div className="fx col gap8">
-              {page.claims.map((c: any) => (
-                <div key={c.id} className="fx ac gap8"
-                  style={{ padding: "10px 12px", background: "var(--soft)", borderRadius: 12, opacity: c.superseded ? 0.55 : 1 }}>
-                  {c.human_confirmed ? <span className="bdg bdg-success" style={{ flex: "none" }}>확인됨</span>
-                    : c.superseded ? <span className="bdg bdg-soft" style={{ flex: "none" }}>대체됨</span>
-                    : <span className="bdg bdg-blue" style={{ flex: "none" }}>{c.claim_type === "rule" ? "소스" : "event"}</span>}
-                  <span className="fs13" style={{ flex: 1 }}>{c.text}</span>
-                </div>
-              ))}
-            </div>
-            <div className="fx ac gap4 mt12" style={{ flexWrap: "wrap" }}>
-              {Array.from(new Set(page.claims.map((c: any) => `${SOURCE_LABEL[c.source.type] ?? c.source.type} · ${c.source.title}`))).slice(0, 5).map((s: any) => (
-                <span key={s} className="srcchip">{s}</span>
-              ))}
+            <div className="fx col gap10">
+              {[...page.claims]
+                .sort((a: any, b: any) => Number(b.human_confirmed) - Number(a.human_confirmed) || Number(a.superseded) - Number(b.superseded))
+                .map((c: any) => <ClaimCard key={c.id} claim={c} tone="plain" compact />)}
             </div>
             <div className="fs12 stone mt12" style={{ lineHeight: 1.5 }}>
               소스 클레임은 전처리 직후 추출되어 불변으로 저장되며, 역질문으로 확인되면 확인됨(human_confirmed)이 붙습니다.

@@ -48,6 +48,9 @@ def wiki_page(page_id: int, db: Session = Depends(get_session)):
         src = db.get(RawSource, c.source_id)
         claims.append({
             "id": c.id, "text": c.rendered_text, "claim_type": c.claim_type,
+            "subject": c.subject, "predicate": c.predicate, "object": c.object,
+            "polarity": c.polarity, "owner": c.owner, "project": c.project,
+            "scope": c.scope, "time_scope": c.time_scope,
             "confidence": c.confidence, "human_confirmed": c.human_confirmed,
             "superseded": c.superseded,
             "source": {"id": src.id, "type": src.source_type, "title": src.title, "path": src.path},
