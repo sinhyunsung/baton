@@ -7,6 +7,7 @@ const NAV: { group: string; items: { href: string; label: string; badge?: "issue
   { group: "위키", items: [
     { href: "/wiki", label: "위키" },
     { href: "/claims", label: "클레임" },
+    { href: "/graph", label: "그래프" },
     { href: "/search", label: "검색" },
   ]},
   { group: "데이터", items: [

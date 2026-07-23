@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import ClaimCard from "@/components/ClaimCard";
 
@@ -12,6 +13,7 @@ const STATUS = [
 const PAGE = 30;
 
 export default function ClaimsPage() {
+  const router = useRouter();
   const [q, setQ] = useState("");
   const [qInput, setQInput] = useState("");
   const [owner, setOwner] = useState("");
@@ -75,7 +77,12 @@ export default function ClaimsPage() {
         <div className="card-lg pad24 chc">조건에 맞는 클레임이 없습니다.</div>
       ) : (
         <div className="two" style={{ gap: 14, alignItems: "start" }}>
-          {items.map((c) => <ClaimCard key={c.id} claim={c} tone="plain" />)}
+          {items.map((c) => (
+            <div key={c.id} style={{ cursor: "pointer" }} title="관계 그래프 보기"
+              onClick={() => router.push(`/graph?focus=claim:${c.id}`)}>
+              <ClaimCard claim={c} tone="plain" />
+            </div>
+          ))}
         </div>
       )}
 

@@ -15,9 +15,11 @@ export default function WikiPage({ params }: { params: { id: string } }) {
   const confirmed = page.claims.filter((c: any) => c.human_confirmed).length;
   const unconfirmed = page.claims.length - confirmed;
   const TYPE_LABEL: any = { concept: "개념", entity: "엔티티", topic: "주제" };
-  // [[페이지 제목]] 내부 링크 → 검색 링크로 렌더 (위키 운영지침 §2-3)
-  const linkedBody = String(page.body).replace(/\[\[([^\]]+)\]\]/g,
-    (_m: string, t: string) => `[${t}](/search?q=${encodeURIComponent(t)})`);
+  // [[페이지 제목]] 내부 링크 → 실제 페이지로, 없는 제목이면 검색으로 폴백
+  const linkedBody = String(page.body).replace(/\[\[([^\]]+)\]\]/g, (_m: string, t: string) => {
+    const pid = page.links?.[t.trim()];
+    return pid ? `[${t}](/wiki/${pid})` : `[${t}](/search?q=${encodeURIComponent(t)})`;
+  });
 
   return (
     <section className="scr">
@@ -81,7 +83,22 @@ export default function WikiPage({ params }: { params: { id: string } }) {
               소스 클레임은 전처리 직후 추출되어 불변으로 저장되며, 역질문으로 확인되면 확인됨(human_confirmed)이 붙습니다.
             </div>
           </div>
+          {page.backlinks?.length > 0 && (
+            <div className="card pad20">
+              <div className="fs14 w7 mb10">이 페이지를 참조</div>
+              <div className="fx col gap6">
+                {page.backlinks.map((b: any) => (
+                  <Link key={b.id} href={`/wiki/${b.id}`} className="fs13" style={{ color: "var(--primary-deep)", fontWeight: 600 }}>
+                    ← {b.title}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="fx col gap8">
+            <Link className="btn btn-primary" style={{ justifyContent: "center" }} href={`/graph?focus=page:${page.id}`}>
+              관계 그래프 보기
+            </Link>
             <button className="btn btn-ghost" style={{ justifyContent: "center" }}
               onClick={() => versions ? setVersions(null)
                 : api(`/api/wiki/pages/${page.id}/versions`).then((r) => setVersions(r.versions))}>

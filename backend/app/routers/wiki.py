@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -34,6 +36,77 @@ def wiki_tree(db: Session = Depends(get_session)):
     return {"pages": out}
 
 
+WIKI_LINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+
+
+@router.get("/graph")
+def wiki_graph(focus: str = "", db: Session = Depends(get_session)):
+    """옵시디언식 관계 그래프.
+    노드: 위키 페이지(+ focus 시 해당 클레임들). 엣지:
+    - link   : 본문 [[내부 링크]]가 실제 페이지 제목과 일치
+    - source : 같은 원본 문서에서 나온 클레임을 근거로 쓰는 페이지끼리
+    - claim  : 클레임 ↔ 소속 페이지 (focus 모드에서만)
+    """
+    pages = db.scalars(select(WikiPage)).all()
+    title2id = {p.title: p.id for p in pages}
+    claim_counts = dict(db.execute(
+        select(ClaimWikiLink.page_id, func.count()).group_by(ClaimWikiLink.page_id)).all())
+
+    nodes = [{
+        "id": f"p{p.id}", "kind": "page", "ref": p.id, "label": p.title,
+        "group": (p.folder_path or "").split("/")[0] or "공통",
+        "size": 7 + min(claim_counts.get(p.id, 0), 18) * 0.7,
+    } for p in pages]
+    edges, seen = [], set()
+
+    def add_edge(a: str, b: str, kind: str):
+        key = (min(a, b), max(a, b), kind)
+        if a != b and key not in seen:
+            seen.add(key)
+            edges.append({"a": a, "b": b, "kind": kind})
+
+    for p in pages:
+        for t in WIKI_LINK_RE.findall(p.body or ""):
+            tid = title2id.get(t.strip())
+            if tid:
+                add_edge(f"p{p.id}", f"p{tid}", "link")
+
+    rows = db.execute(
+        select(ClaimWikiLink.page_id, Claim.source_id)
+        .join(Claim, Claim.id == ClaimWikiLink.claim_id)).all()
+    by_src: dict[int, set[int]] = {}
+    for pid, sid in rows:
+        by_src.setdefault(sid, set()).add(pid)
+    for pids in by_src.values():
+        ordered = sorted(pids)
+        for i in range(len(ordered)):
+            for j in range(i + 1, len(ordered)):
+                add_edge(f"p{ordered[i]}", f"p{ordered[j]}", "source")
+
+    def add_page_claims(pid: int, cap: int = 30):
+        links = db.scalars(select(ClaimWikiLink).where(ClaimWikiLink.page_id == pid).limit(cap)).all()
+        for l in links:
+            c = db.get(Claim, l.claim_id)
+            if not c:
+                continue
+            cid = f"c{c.id}"
+            if not any(n["id"] == cid for n in nodes):
+                nodes.append({"id": cid, "kind": "claim", "ref": c.id,
+                              "label": (c.object or c.subject or "")[:26],
+                              "group": "클레임", "size": 4.5,
+                              "confirmed": c.human_confirmed})
+            add_edge(cid, f"p{pid}", "claim")
+
+    if focus.startswith("page:"):
+        add_page_claims(int(focus.split(":")[1]))
+    elif focus.startswith("claim:"):
+        cid = int(focus.split(":")[1])
+        for l in db.scalars(select(ClaimWikiLink).where(ClaimWikiLink.claim_id == cid)):
+            add_page_claims(l.page_id)
+
+    return {"nodes": nodes, "edges": edges, "focus": focus}
+
+
 @router.get("/pages/{page_id}")
 def wiki_page(page_id: int, db: Session = Depends(get_session)):
     p = db.get(WikiPage, page_id)
@@ -58,10 +131,19 @@ def wiki_page(page_id: int, db: Session = Depends(get_session)):
     issues = db.scalars(
         select(LintIssue).where(LintIssue.page_id == page_id, LintIssue.status == "open")
     ).all()
+    # 본문 [[링크]] → 실제 페이지 id 해석 + 이 페이지를 참조하는 백링크
+    all_pages = db.scalars(select(WikiPage)).all()
+    title2id = {ap.title: ap.id for ap in all_pages}
+    links = {t.strip(): title2id.get(t.strip())
+             for t in WIKI_LINK_RE.findall(p.body or "")}
+    backlinks = [{"id": ap.id, "title": ap.title}
+                 for ap in all_pages if ap.id != p.id
+                 and p.title in WIKI_LINK_RE.findall(ap.body or "")]
     return {
         "id": p.id, "title": p.title, "folder_path": p.folder_path,
         "page_type": p.page_type, "body": p.body,
         "updated_at": p.updated_at.isoformat(), "claims": claims,
+        "links": links, "backlinks": backlinks,
         "open_issues": [{"id": i.id, "type": i.issue_type, "question": i.question} for i in issues],
     }
 
