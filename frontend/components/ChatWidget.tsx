@@ -1,5 +1,6 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { api, sse } from "@/lib/api";
 
@@ -13,11 +14,31 @@ const ChatIcon = () => (
 );
 
 export default function ChatWidget() {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const restored = useRef(false);
+
+  // 전체 리로드(새로고침·외부 링크)에도 대화가 유지되도록 세션에 보존/복원
+  // (SSR 하이드레이션 불일치를 피하려고 마운트 후 복원)
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("baton_chat");
+      if (raw) {
+        const d = JSON.parse(raw);
+        setMsgs(d.msgs ?? []);
+        setOpen(!!d.open);
+      }
+    } catch {}
+    restored.current = true;
+  }, []);
+  useEffect(() => {
+    if (!restored.current) return;
+    try { sessionStorage.setItem("baton_chat", JSON.stringify({ msgs: msgs.slice(-40), open })); } catch {}
+  }, [msgs, open]);
   const scroll = () => setTimeout(() => bodyRef.current?.scrollTo(0, 1e6), 30);
 
   async function send() {
@@ -104,7 +125,7 @@ export default function ChatWidget() {
                       return acc;
                     }, []).slice(0, 3).map((u, j) => (
                       <span key={j} className="srcchip"
-                        onClick={() => u.pageId && (window.location.href = `/wiki/${u.pageId}`)}>
+                        onClick={() => u.pageId && router.push(`/wiki/${u.pageId}`)}>
                         {u.label}{u.n > 1 ? ` ·근거 ${u.n}` : ""}{u.confirmed ? " ✓" : ""}
                       </span>
                     ))}
