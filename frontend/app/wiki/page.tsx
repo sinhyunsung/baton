@@ -32,7 +32,9 @@ function buildTree(pages: Page[]): Node[] {
       byPath.get(acc)!.total += 1;
     }
   }
-  const sortRec = (n: Node) => { n.children.sort((a, b) => a.name.localeCompare(b.name, "ko")); n.children.forEach(sortRec); };
+  // 정렬: 글자 수 우선, 같은 길이면 ㄱㄴㄷ (예: 가가가 → 나나나 → 다다다 → 가가가가가)
+  const byLenKo = (a: string, b: string) => a.length - b.length || a.localeCompare(b, "ko");
+  const sortRec = (n: Node) => { n.children.sort((a, b) => byLenKo(a.name, b.name)); n.children.forEach(sortRec); };
   sortRec(root);
   return root.children;
 }
@@ -50,9 +52,10 @@ export default function WikiTree() {
 
   const tree = useMemo(() => buildTree(pages), [pages]);
   // 선택 폴더의 페이지 = 그 폴더 + 모든 하위 폴더의 페이지
-  const shown = sel
+  const shown = (sel
     ? pages.filter((p) => p.folder_path === sel || p.folder_path.startsWith(sel + "/"))
-    : pages;
+    : pages
+  ).slice().sort((a, b) => a.title.length - b.title.length || a.title.localeCompare(b.title, "ko"));
 
   function toggle(path: string) {
     setCollapsed((c) => {
