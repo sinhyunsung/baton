@@ -137,6 +137,13 @@ def process_source(db: Session, src: RawSource) -> int:
         db.commit()
 
         claims_data = [c for c in result.get("claims", []) if c.get("subject") and c.get("object")]
+        # project는 위키 트리의 프로젝트 선정 로직(n-gram 빈도 canonical)과 같은 기준으로 정규화해 저장한다
+        if any(c.get("project") for c in claims_data):
+            from .projects import build_counts, canonical
+            counts = build_counts(db)
+            for c in claims_data:
+                if c.get("project"):
+                    c["project"] = canonical(str(c["project"]), counts)
         claims: list[Claim] = []
         if claims_data:
             rendered = [_render(c) for c in claims_data]

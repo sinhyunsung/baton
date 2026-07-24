@@ -17,7 +17,7 @@ from collections import Counter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Claim, WikiPage
+from ..models import Claim, WikiPage  # noqa: F401
 
 log = logging.getLogger("baton.projects")
 
@@ -85,8 +85,8 @@ def normalize_folder(db: Session, folder_path: str) -> str:
 
 
 def normalize_all(db: Session) -> int:
-    """기존 전체 페이지의 프로젝트 세그먼트를 최신 집계 기준으로 재정규화 (인제스트 배치 후 호출).
-    데이터가 쌓이면서 초기에 파편화됐던 폴더들이 대표 이름으로 합쳐진다."""
+    """기존 전체 페이지의 프로젝트 세그먼트 + 클레임의 project 필드를 최신 집계 기준으로 재정규화.
+    (인제스트 배치 후 호출 — 데이터가 쌓이면서 초기에 파편화됐던 이름들이 대표 이름으로 합쳐진다)"""
     counts = build_counts(db)
     moved = 0
     for page in db.scalars(select(WikiPage)).all():
@@ -100,6 +100,15 @@ def normalize_all(db: Session) -> int:
             page.folder_path = "/".join(parts)
             moved += 1
             log.info("트리 재배치: %s → %s (%s)", old, page.folder_path, page.title)
+    # 클레임의 project도 같은 기준으로 — 트리와 클레임이 항상 같은 프로젝트명을 쓰게 한다
+    for claim in db.scalars(select(Claim).where(Claim.project.isnot(None))).all():
+        canon = canonical(claim.project, counts)
+        if canon != claim.project:
+            if claim.rendered_text:
+                claim.rendered_text = claim.rendered_text.replace(
+                    f"프로젝트: {claim.project}", f"프로젝트: {canon}")
+            claim.project = canon
+            moved += 1
     if moved:
         db.commit()
     return moved
