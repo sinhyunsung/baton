@@ -83,6 +83,9 @@ def wiki_graph(focus: str = "", db: Session = Depends(get_session)):
             for j in range(i + 1, len(ordered)):
                 add_edge(f"p{ordered[i]}", f"p{ordered[j]}", "source")
 
+    # 클레임 노드는 전체 그래프에도 상시 포함 (페이지당 상한으로 과밀 방지)
+    node_ids = {n["id"] for n in nodes}
+
     def add_page_claims(pid: int, cap: int = 30):
         links = db.scalars(select(ClaimWikiLink).where(ClaimWikiLink.page_id == pid).limit(cap)).all()
         for l in links:
@@ -90,19 +93,16 @@ def wiki_graph(focus: str = "", db: Session = Depends(get_session)):
             if not c:
                 continue
             cid = f"c{c.id}"
-            if not any(n["id"] == cid for n in nodes):
+            if cid not in node_ids:
+                node_ids.add(cid)
                 nodes.append({"id": cid, "kind": "claim", "ref": c.id,
                               "label": (c.object or c.subject or "")[:26],
                               "group": "클레임", "size": 4.5,
                               "confirmed": c.human_confirmed})
             add_edge(cid, f"p{pid}", "claim")
 
-    if focus.startswith("page:"):
-        add_page_claims(int(focus.split(":")[1]))
-    elif focus.startswith("claim:"):
-        cid = int(focus.split(":")[1])
-        for l in db.scalars(select(ClaimWikiLink).where(ClaimWikiLink.claim_id == cid)):
-            add_page_claims(l.page_id)
+    for p in pages:
+        add_page_claims(p.id)
 
     return {"nodes": nodes, "edges": edges, "focus": focus}
 

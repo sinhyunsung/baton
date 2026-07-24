@@ -103,7 +103,8 @@ export default function GraphView({
           ctx.strokeStyle = "#111827"; ctx.lineWidth = 2 / scale;
           ctx.beginPath(); ctx.arc(s.x, s.y, s.size + 3.5 / scale, 0, Math.PI * 2); ctx.stroke();
         }
-        const showLabel = scale > 0.65 || s === hovered || s.id === focusId;
+        const showLabel = s === hovered || s.id === focusId ||
+          (s.kind === "page" ? scale > 0.65 : scale > 1.15);
         if (showLabel) {
           ctx.font = `${(s === hovered ? 13 : 11.5) / scale}px Pretendard, sans-serif`;
           ctx.fillStyle = dim ? "rgba(70,80,95,.25)" : "#3d4855";

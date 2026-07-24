@@ -60,17 +60,17 @@ function GraphInner() {
       </div>
       <div className="lede mb16">
         <span style={{ color: "#0064E0" }}>●</span> 위키 페이지 ·
-        <span style={{ color: "#7cc0f2" }}>●</span> 클레임(초점일 때) ·
+        <span style={{ color: "#7cc0f2" }}>●</span> 클레임 ·
         <span style={{ color: "#0064E0", fontWeight: 700 }}> ―</span> 내부 링크 ·
         <span className="stone"> ┄ </span> 같은 원본 문서.
-        노드 클릭 = 페이지 열기, 드래그 = 이동, 휠 = 줌, 빈 곳 드래그 = 화면 이동.
+        노드 클릭 = 상세 페이지 열기, 드래그 = 이동, 휠 = 줌(클레임 이름은 줌인 시 표시), 빈 곳 드래그 = 화면 이동.
       </div>
       <div className="card-lg" style={{ overflow: "hidden", padding: 4 }}>
         {view ? (
           <GraphView nodes={view.nodes} edges={view.edges} focusId={focusId}
             onNodeClick={(n) => {
               if (n.kind === "page") router.push(`/wiki/${n.ref}`);
-              else router.push(`/graph?focus=claim:${n.ref}`);
+              else router.push(`/claims/${n.ref}`);
             }} />
         ) : (
           <div className="pad24 chc">그래프 불러오는 중…</div>
