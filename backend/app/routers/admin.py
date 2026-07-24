@@ -10,7 +10,7 @@ from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from ..db import SessionLocal, get_session
-from ..models import Claim, LintIssue, LintRun, RawSource, WikiPage
+from ..models import Claim, ClaimWikiLink, LintIssue, LintRun, RawSource, WikiPage
 from ..pipeline.ingest import (
     get_source_dir, get_source_dir_display, resolve_dir, retry_failed,
     run_ingest, scan_files, set_source_dir,
@@ -250,6 +250,35 @@ def claims_list(q: str = "", owner: str = "", project: str = "", status: str = "
         .group_by(Claim.project).order_by(func.count().desc()).limit(24))]
     return {"total": total, "items": [_claim_full(db, c) for c in rows],
             "owners": owners, "projects": projects}
+
+
+@router.get("/claims/{claim_id}")
+def claim_detail(claim_id: int, db: Session = Depends(get_session)):
+    """클레임 상세: 전체 필드 + 연결 위키 페이지 + 관련 린트 이슈 + 유사 클레임."""
+    c = db.get(Claim, claim_id)
+    if not c:
+        raise HTTPException(404)
+    pages = []
+    for l in db.scalars(select(ClaimWikiLink).where(ClaimWikiLink.claim_id == claim_id)):
+        p = db.get(WikiPage, l.page_id)
+        if p:
+            pages.append({"id": p.id, "title": p.title, "folder_path": p.folder_path})
+    issues = [{
+        "id": i.id, "type": i.issue_type, "status": i.status,
+        "question": i.question, "detail": i.detail, "answer": i.answer,
+    } for i in db.scalars(select(LintIssue).order_by(LintIssue.id.desc()))
+        if claim_id in (i.claim_ids or [])]
+    rows = db.execute(
+        select(Claim, Claim.embedding.cosine_distance(c.embedding).label("d"))
+        .where(Claim.id != claim_id).order_by("d").limit(6)
+    ).all()
+    similar = [{**_claim_full(db, sc), "sim": round(1 - d, 3)} for sc, d in rows]
+    return {
+        **_claim_full(db, c),
+        "rendered_text": c.rendered_text,
+        "created_at": c.created_at.isoformat(),
+        "pages": pages, "issues": issues, "similar": similar,
+    }
 
 
 @router.get("/lint/issues")

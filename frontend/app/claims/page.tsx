@@ -78,8 +78,8 @@ export default function ClaimsPage() {
       ) : (
         <div className="two" style={{ gap: 14, alignItems: "start" }}>
           {items.map((c) => (
-            <div key={c.id} style={{ cursor: "pointer" }} title="관계 그래프 보기"
-              onClick={() => router.push(`/graph?focus=claim:${c.id}`)}>
+            <div key={c.id} style={{ cursor: "pointer" }} title="클레임 상세 보기"
+              onClick={() => router.push(`/claims/${c.id}`)}>
               <ClaimCard claim={c} tone="plain" />
             </div>
           ))}
