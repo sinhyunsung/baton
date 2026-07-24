@@ -1,8 +1,33 @@
 "use client";
 import { SOURCE_LABEL } from "@/lib/api";
 
-/** 클레임을 구조적으로 보여주는 카드.
- * rendered_text를 통짜로 붙이지 않고 주어·속성 / 값 / 담당·프로젝트·시점 필드를 분리해 표시한다. */
+/** 받침 유무에 따라 조사를 고른다 (한글로 끝나지 않으면 받침형 기본). */
+function josa(word: string, withBatchim: string, without: string): string {
+  const ch = (word || "").trim().slice(-1);
+  const code = ch.charCodeAt(0) - 0xac00;
+  if (code < 0 || code > 11171) return withBatchim; // 숫자·영문으로 끝나면 "은/이다" 계열
+  return code % 28 > 0 ? withBatchim : without;
+}
+
+/** 클레임 요소를 명제 문장으로 조합한다.
+ * 예: "정산 대사 배치의 담당자는 [박세린]이다" / negative → "[박세린]이 아니다" */
+function Proposition({ claim, compact }: { claim: any; compact?: boolean }) {
+  const subj = claim.subject ?? "";
+  const pred = claim.predicate ?? "";
+  const obj = String(claim.object ?? "");
+  const tail = claim.polarity === "negative"
+    ? ` ${josa(obj, "이", "가")} 아니다`
+    : josa(obj, "이다", "다");
+  return (
+    <div className={compact ? "fs14" : "fs16"} style={{ lineHeight: 1.55, fontWeight: 500 }}>
+      {pred ? <>{subj}의 {pred}{josa(pred, "은", "는")} </> : <>{subj}{josa(subj, "은", "는")} </>}
+      <b style={{ color: claim.polarity === "negative" ? "var(--crit)" : "var(--primary-deep)" }}>{obj}</b>
+      {tail}
+    </div>
+  );
+}
+
+/** 클레임 카드 — 본문은 요소를 조합한 명제 문장, 조건·메타는 칩으로. */
 export default function ClaimCard({
   claim, label, tone = "blue", compact,
 }: {
@@ -16,7 +41,6 @@ export default function ClaimCard({
   const srcLabel = claim.source
     ? `${SOURCE_LABEL[claim.source.type] ?? claim.source.type} · ${claim.source.title ?? claim.source.path}`
     : null;
-  const negative = claim.polarity === "negative";
 
   return (
     <div style={{ borderRadius: compact ? 12 : 16, padding: compact ? "12px 14px" : "16px 18px",
@@ -29,17 +53,13 @@ export default function ClaimCard({
         </span>
       </div>
 
-      <div className="fs13 stone mb2">{claim.subject}{claim.predicate ? ` · ${claim.predicate}` : ""}</div>
-      <div className={compact ? "fs15 w7 mb8" : "fs17 w7 mb10"} style={{ lineHeight: 1.35 }}>
-        {negative && <span style={{ color: "var(--crit)", marginRight: 6 }}>아니다:</span>}
-        {claim.object}
-      </div>
+      <Proposition claim={claim} compact={compact} />
 
-      <div className="fx gap6" style={{ flexWrap: "wrap" }}>
+      <div className="fx gap6 mt10" style={{ flexWrap: "wrap" }}>
+        {claim.scope && <span className="bdg bdg-soft">범위 · {claim.scope}</span>}
+        {claim.time_scope && <span className="bdg bdg-soft">시점 · {claim.time_scope}</span>}
         {claim.owner && <span className="bdg bdg-soft">담당 {claim.owner}</span>}
         {claim.project && <span className="bdg bdg-soft">{claim.project}</span>}
-        {claim.time_scope && <span className="bdg bdg-soft">{claim.time_scope}</span>}
-        {claim.scope && <span className="bdg bdg-soft">{claim.scope}</span>}
         {claim.confidence != null && <span className="bdg bdg-soft">확신도 {Math.round(claim.confidence * 100)}%</span>}
       </div>
 

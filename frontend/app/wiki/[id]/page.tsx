@@ -8,6 +8,14 @@ import ClaimCard from "@/components/ClaimCard";
 export default function WikiPage({ params }: { params: { id: string } }) {
   const [page, setPage] = useState<any>(null);
   const [versions, setVersions] = useState<any[] | null>(null);
+  const [srcView, setSrcView] = useState<any>(null);   // 열려있는 원본 소스
+  const [srcLoading, setSrcLoading] = useState(false);
+
+  async function openSource(id: number) {
+    setSrcLoading(true);
+    try { setSrcView(await api(`/api/sources/${id}`)); } catch {}
+    setSrcLoading(false);
+  }
 
   useEffect(() => { api(`/api/wiki/pages/${params.id}`).then(setPage).catch(() => {}); }, [params.id]);
   if (!page) return <section className="scr"><div className="lede">불러오는 중…</div></section>;
@@ -83,6 +91,21 @@ export default function WikiPage({ params }: { params: { id: string } }) {
               소스 클레임은 전처리 직후 추출되어 불변으로 저장되며, 역질문으로 확인되면 확인됨(human_confirmed)이 붙습니다.
             </div>
           </div>
+
+          <div className="card pad20">
+            <div className="fs14 w7 mb10">원본 소스</div>
+            <div className="fx col gap6">
+              {Array.from(new Map(page.claims.filter((c: any) => c.source).map((c: any) => [c.source.id, c.source])).values()).map((s: any) => (
+                <div key={s.id} className="fx jb ac gap8" style={{ padding: "8px 10px", background: "var(--soft)", borderRadius: 10 }}>
+                  <span className="fs13" style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {s.title ?? s.path}
+                  </span>
+                  <button className="btn btn-ghost btn-sm" style={{ padding: "4px 12px", fontSize: 12, flex: "none" }}
+                    onClick={() => openSource(s.id)} disabled={srcLoading}>원본 보기</button>
+                </div>
+              ))}
+            </div>
+          </div>
           {page.backlinks?.length > 0 && (
             <div className="card pad20">
               <div className="fs14 w7 mb10">이 페이지를 참조</div>
@@ -110,6 +133,53 @@ export default function WikiPage({ params }: { params: { id: string } }) {
           </div>
         </div>
       </div>
+
+      {srcView && (
+        <div onClick={() => setSrcView(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(15,23,32,.45)", zIndex: 90,
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card-lg"
+            style={{ width: "min(860px, 100%)", maxHeight: "84vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div className="fx jb ac" style={{ padding: "16px 22px", borderBottom: "1px solid var(--hairsoft)" }}>
+              <div>
+                <div className="fs16 w7">{srcView.title ?? srcView.path}</div>
+                <div className="fs12 stone mt2">
+                  {srcView.path} · v{srcView.version} · {fmtDate(srcView.ingested_at)} 수집 · 원본 불변(sha256 {String(srcView.sha256).slice(0, 10)}…)
+                </div>
+              </div>
+              <button className="iconbtn" style={{ border: "none" }} onClick={() => setSrcView(null)}>
+                <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" strokeLinecap="round" /></svg>
+              </button>
+            </div>
+            <div style={{ overflow: "auto", padding: "18px 22px" }}>
+              <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 13.5, lineHeight: 1.7,
+                fontFamily: "Pretendard, sans-serif", margin: 0 }}>
+                {(() => {
+                  const c = srcView.content ?? {};
+                  const fields: string[] = c.content_field_names ?? [];
+                  const body = fields.map((f) => c[f]).filter(Boolean).join("\n\n");
+                  return body || JSON.stringify(c, null, 2);
+                })()}
+              </pre>
+              {(() => {
+                const c = srcView.content ?? {};
+                const fields = new Set([...(c.content_field_names ?? []), "content_field_names", "title_field_name", "dataset_doc_uuid", "file_ext"]);
+                const meta = Object.entries(c).filter(([k]) => !fields.has(k));
+                return meta.length > 0 && (
+                  <div className="mt16" style={{ borderTop: "1px solid var(--hairsoft)", paddingTop: 12 }}>
+                    <div className="fs12 w7 sub mb6">메타데이터</div>
+                    {meta.map(([k, v]) => (
+                      <div key={k} className="fs12 stone" style={{ lineHeight: 1.7 }}>
+                        <b>{k}</b>: {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
