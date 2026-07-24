@@ -13,9 +13,10 @@ from ..prompts.chat import ANSWER_SYSTEM, ANSWER_USER, QUERY_PARSE_SYSTEM
 log = logging.getLogger("baton.chat")
 
 
-def retrieve(db: Session, question: str, k: int = 8) -> dict:
+def retrieve(db: Session, question: str, k: int = 8, history_text: str = "") -> dict:
     """역추적 검색. 반환: {parsed, matches:[{claim, sim, source, pages}], pages}"""
-    parsed = llm.extract_json(QUERY_PARSE_SYSTEM, question)
+    parse_input = f"## 이전 대화\n{history_text}\n\n## 질문\n{question}" if history_text else question
+    parsed = llm.extract_json(QUERY_PARSE_SYSTEM, parse_input)
     search_text = parsed.get("search_text") or question
     vec = llm.embed([search_text], input_type="search_query")[0]
 
@@ -54,9 +55,13 @@ def build_contexts(r: dict) -> tuple[str, str]:
     return wiki_ctx, claims_ctx
 
 
-def answer_stream(db: Session, question: str):
+def answer_stream(db: Session, question: str, history: list[dict] | None = None):
     """SSE용 제너레이터. 이벤트: meta(근거) → token* → done | no_evidence"""
-    r = retrieve(db, question)
+    hist = [h for h in (history or []) if h.get("text")][-8:]  # 최근 8턴만
+    history_text = "\n".join(
+        f"{'사용자' if h.get('role') == 'user' else '챗봇'}: {str(h['text'])[:500]}" for h in hist
+    ) or "(없음)"
+    r = retrieve(db, question, history_text=history_text if hist else "")
     if not r["matches"]:
         yield {"event": "no_evidence", "data": json.dumps({
             "message": "위키에 확정된 지식이 없습니다(근거 0건). 역질문을 보낼까요?",
@@ -78,7 +83,8 @@ def answer_stream(db: Session, question: str):
     wiki_ctx, claims_ctx = build_contexts(r)
     for token in llm.stream(
         ANSWER_SYSTEM,
-        ANSWER_USER.format(question=question, wiki_context=wiki_ctx, claims_context=claims_ctx),
+        ANSWER_USER.format(question=question, history=history_text,
+                           wiki_context=wiki_ctx, claims_context=claims_ctx),
     ):
         yield {"event": "token", "data": token}
     yield {"event": "done", "data": "{}"}

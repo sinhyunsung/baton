@@ -8,47 +8,97 @@ type Src = { claim_text: string; sim: number; human_confirmed: boolean;
   source_type: string; source_title: string; pages: { id: number; title: string }[] };
 type Msg = { role: "me" | "ai"; text: string; sources?: Src[];
   noEvidence?: { message: string; question: string; sent?: boolean } };
+type Conv = { id: string; title: string; msgs: Msg[] };
 
 const ChatIcon = () => (
   <svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-4 4V5Z" strokeLinecap="round" strokeLinejoin="round" /></svg>
 );
 
+const newConv = (): Conv => ({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), title: "새 대화", msgs: [] });
+
 export default function ChatWidget() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [convs, setConvs] = useState<Conv[]>([]);
+  const [curId, setCurId] = useState("");
+  const [showHist, setShowHist] = useState(false);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const restored = useRef(false);
 
-  // 전체 리로드(새로고침·외부 링크)에도 대화가 유지되도록 세션에 보존/복원
-  // (SSR 하이드레이션 불일치를 피하려고 마운트 후 복원)
+  const cur = convs.find((c) => c.id === curId);
+  const msgs = cur?.msgs ?? [];
+
+  // 대화 전체를 세션에 보존/복원 (새로고침·페이지 이동에도 유지)
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem("baton_chat");
+      const raw = sessionStorage.getItem("baton_chat_v2");
       if (raw) {
         const d = JSON.parse(raw);
-        setMsgs(d.msgs ?? []);
-        setOpen(!!d.open);
+        if (d.convs?.length) { setConvs(d.convs); setCurId(d.curId ?? d.convs[0].id); setOpen(!!d.open); restored.current = true; return; }
+      }
+      const old = sessionStorage.getItem("baton_chat"); // 구버전 마이그레이션
+      if (old) {
+        const d = JSON.parse(old);
+        if (d.msgs?.length) {
+          const c = { ...newConv(), title: d.msgs[0]?.text?.slice(0, 24) ?? "이전 대화", msgs: d.msgs };
+          setConvs([c]); setCurId(c.id); setOpen(!!d.open); restored.current = true; return;
+        }
       }
     } catch {}
+    const c = newConv();
+    setConvs([c]); setCurId(c.id);
     restored.current = true;
   }, []);
   useEffect(() => {
     if (!restored.current) return;
-    try { sessionStorage.setItem("baton_chat", JSON.stringify({ msgs: msgs.slice(-40), open })); } catch {}
-  }, [msgs, open]);
+    try {
+      sessionStorage.setItem("baton_chat_v2", JSON.stringify({
+        convs: convs.slice(0, 20).map((c) => ({ ...c, msgs: c.msgs.slice(-40) })), curId, open,
+      }));
+    } catch {}
+  }, [convs, curId, open]);
+
   const scroll = () => setTimeout(() => bodyRef.current?.scrollTo(0, 1e6), 30);
+  const setMsgs = (updater: (m: Msg[]) => Msg[]) =>
+    setConvs((cs) => cs.map((c) => (c.id === curId ? { ...c, msgs: updater(c.msgs) } : c)));
+
+  function startNew() {
+    if (cur && cur.msgs.length === 0) { setShowHist(false); return; }
+    const c = newConv();
+    setConvs((cs) => [c, ...cs]);
+    setCurId(c.id);
+    setShowHist(false);
+  }
+
+  function removeConv(id: string) {
+    setConvs((cs) => {
+      const rest = cs.filter((c) => c.id !== id);
+      if (id === curId) {
+        const next = rest[0] ?? newConv();
+        setCurId(next.id);
+        return rest.length ? rest : [next];
+      }
+      return rest;
+    });
+  }
 
   async function send() {
     const q = input.trim();
-    if (!q || busy) return;
+    if (!q || busy || !cur) return;
+    // 지금까지의 대화를 history로 동봉 → 후속 질문("그럼 담당자는?")이 맥락을 갖는다
+    const history = cur.msgs
+      .filter((m) => m.text)
+      .map((m) => ({ role: m.role === "me" ? "user" : "assistant", text: m.text }));
     setInput(""); setBusy(true);
+    if (cur.msgs.length === 0) {
+      setConvs((cs) => cs.map((c) => (c.id === curId ? { ...c, title: q.slice(0, 24) } : c)));
+    }
     setMsgs((m) => [...m, { role: "me", text: q }, { role: "ai", text: "" }]);
     scroll();
     try {
-      await sse("/api/chat", { question: q }, (event, data) => {
+      await sse("/api/chat", { question: q, history }, (event, data) => {
         setMsgs((m) => {
           const out = [...m];
           const last = { ...out[out.length - 1] };
@@ -71,26 +121,55 @@ export default function ChatWidget() {
     const q = msgs[i].noEvidence?.question;
     if (!q) return;
     await api("/api/chat/backquestion", { method: "POST", body: JSON.stringify({ question: q }) });
-    setMsgs((m) => m.map((msg, j) => j === i ? { ...msg, noEvidence: { ...msg.noEvidence!, sent: true } } : msg));
+    setMsgs((all) => all.map((msg, j) => (j === i ? { ...msg, noEvidence: { ...msg.noEvidence!, sent: true } } : msg)));
   }
 
   return (
     <>
       <div className={`chatpanel ${open ? "open" : ""}`}>
-        <div className="fx ac jb" style={{ padding: "14px 18px", borderBottom: "1px solid var(--hairsoft)" }}>
-          <div className="fx ac gap10">
-            <div style={{ width: 30, height: 30, borderRadius: "50%", background: "var(--primary)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div className="fx ac jb" style={{ padding: "12px 14px 12px 18px", borderBottom: "1px solid var(--hairsoft)" }}>
+          <div className="fx ac gap10" style={{ minWidth: 0 }}>
+            <div style={{ width: 30, height: 30, borderRadius: "50%", background: "var(--primary)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"><path d="M4 5h16v11H9l-4 4V5Z" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </div>
-            <div>
-              <div className="fs14 w7">Baton 챗봇</div>
+            <div style={{ minWidth: 0 }}>
+              <div className="fs14 w7" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {showHist ? "대화 기록" : (cur?.title ?? "Baton 챗봇")}
+              </div>
               <div className="fs12 stone">위키 근거로 답해요</div>
             </div>
           </div>
-          <button className="iconbtn" style={{ border: "none" }} onClick={() => setOpen(false)}>
-            <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" strokeLinecap="round" /></svg>
-          </button>
+          <div className="fx ac gap4" style={{ flex: "none" }}>
+            <button className="btn btn-ghost btn-sm" style={{ padding: "5px 10px", fontSize: 12 }} onClick={startNew} title="새 채팅">＋ 새 채팅</button>
+            <button className={`btn btn-sm ${showHist ? "btn-primary" : "btn-ghost"}`} style={{ padding: "5px 10px", fontSize: 12 }}
+              onClick={() => setShowHist(!showHist)} title="대화 기록">기록 {convs.filter((c) => c.msgs.length).length}</button>
+            <button className="iconbtn" style={{ border: "none" }} onClick={() => setOpen(false)}>
+              <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" strokeLinecap="round" /></svg>
+            </button>
+          </div>
         </div>
+
+        {showHist ? (
+          <div className="fx col gap8" style={{ flex: 1, overflow: "auto", padding: 16, background: "var(--canvas)" }}>
+            {convs.filter((c) => c.msgs.length > 0).length === 0 && (
+              <div className="fs13 stone" style={{ textAlign: "center", marginTop: 24 }}>저장된 대화가 없습니다.</div>
+            )}
+            {convs.filter((c) => c.msgs.length > 0).map((c) => (
+              <div key={c.id} className="fx ac gap8" style={{ padding: "10px 12px", borderRadius: 12, cursor: "pointer",
+                background: c.id === curId ? "rgba(0,100,224,.09)" : "var(--paper, #fff)", border: "1px solid var(--hairsoft)" }}
+                onClick={() => { setCurId(c.id); setShowHist(false); }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="fs13 w7" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</div>
+                  <div className="fs12 stone">{c.msgs.length}개 메시지</div>
+                </div>
+                <button className="iconbtn" style={{ border: "none", width: 26, height: 26, flex: "none" }}
+                  onClick={(e) => { e.stopPropagation(); removeConv(c.id); }} title="삭제">
+                  <svg viewBox="0 0 24 24" width="13"><path d="M6 6l12 12M18 6 6 18" strokeLinecap="round" /></svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
         <div className="fx col gap12" ref={bodyRef} style={{ flex: 1, overflow: "auto", padding: 16, background: "var(--canvas)" }}>
           {msgs.length === 0 && <div className="bubble ai">위키에 무엇이든 물어보세요.<br />예) 온보딩 총괄 담당자가 누구야?</div>}
           {msgs.map((m, i) =>
@@ -135,10 +214,14 @@ export default function ChatWidget() {
             )
           )}
         </div>
+        )}
+
         <div className="fx gap8" style={{ padding: "12px 14px", borderTop: "1px solid var(--hairsoft)" }}>
           <input className="inp" style={{ height: 38, fontSize: 13, padding: "8px 12px" }}
             placeholder="위키에 무엇이든 물어보세요" value={input} disabled={busy}
-            onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} />
+            onChange={(e) => setInput(e.target.value)}
+            onFocus={() => setShowHist(false)}
+            onKeyDown={(e) => e.key === "Enter" && send()} />
           <button className="btn btn-cta btn-sm" onClick={send} disabled={busy}>질문 보내기</button>
         </div>
       </div>

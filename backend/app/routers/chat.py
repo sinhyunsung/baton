@@ -11,11 +11,12 @@ router = APIRouter(prefix="/api", tags=["chat"])
 
 class ChatIn(BaseModel):
     question: str
+    history: list[dict] = []   # [{"role": "user"|"assistant", "text": "..."}] 최근 순서대로
 
 
 @router.post("/chat")
 def chat(body: ChatIn, db: Session = Depends(get_session)):
-    return EventSourceResponse(answer_stream(db, body.question))
+    return EventSourceResponse(answer_stream(db, body.question, history=body.history))
 
 
 @router.post("/chat/backquestion")
