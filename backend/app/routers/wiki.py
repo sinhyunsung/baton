@@ -95,8 +95,10 @@ def wiki_graph(focus: str = "", db: Session = Depends(get_session)):
             cid = f"c{c.id}"
             if cid not in node_ids:
                 node_ids.add(cid)
+                # 라벨은 "주어의 속성" — 값보다 클레임의 정체를 대표한다 ("정산 대사 배치의 담당자")
+                label = f"{c.subject}의 {c.predicate}" if c.predicate else (c.subject or c.object or "")
                 nodes.append({"id": cid, "kind": "claim", "ref": c.id,
-                              "label": (c.object or c.subject or "")[:26],
+                              "label": label[:30],
                               "group": "클레임", "size": 6.5,
                               "confirmed": c.human_confirmed})
             add_edge(cid, f"p{pid}", "claim")
