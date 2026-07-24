@@ -20,6 +20,9 @@ DEEPSEEK_MAX_TOKENS = int(os.environ.get("BATON_DEEPSEEK_MAX_TOKENS", "8000"))  
 EMBED_MODEL = os.environ.get("BATON_EMBED_MODEL", "cohere.embed-multilingual-v3")
 EMBED_DIM = 1024
 
+# 클레임 누락 스윕(2차 패스): 본문을 한 번 더 훑어 안 뽑힌 사실을 추가 추출
+CLAIM_SWEEP = os.environ.get("BATON_CLAIM_SWEEP", "1") == "1"
+
 # 유사도 판단 임계값
 SIM_WIKI_MATCH = 0.60   # 새 클레임 ↔ 기존 클레임: 이 이상이면 같은 주제 위키로 판단
 SIM_ANSWER_MIN = 0.55   # 챗봇: 이 미만이면 근거 0건 → 역질문 제안 (cohere v3 한국어 무관 쌍 baseline ~0.5)

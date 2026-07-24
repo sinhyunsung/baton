@@ -9,9 +9,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import llm
-from ..config import DATA_SOURCES_DIR
+from ..config import CLAIM_SWEEP, DATA_SOURCES_DIR
 from ..models import Claim, Preprocessed, RawSource
-from ..prompts.claims import PREPROCESS_AND_CLAIMS_SYSTEM, PREPROCESS_AND_CLAIMS_USER
+from ..prompts.claims import (
+    CLAIMS_SWEEP_SYSTEM, CLAIMS_SWEEP_USER,
+    PREPROCESS_AND_CLAIMS_SYSTEM, PREPROCESS_AND_CLAIMS_USER,
+)
 from .wiki import apply_wiki_updates
 
 log = logging.getLogger("baton.ingest")
@@ -137,6 +140,25 @@ def process_source(db: Session, src: RawSource) -> int:
         db.commit()
 
         claims_data = [c for c in result.get("claims", []) if c.get("subject") and c.get("object")]
+
+        # 누락 스윕(2차 패스): 본문을 다시 훑어 아직 안 뽑힌 사실만 추가 — 재현율 우선
+        if CLAIM_SWEEP and claims_data:
+            try:
+                seen = {(c["subject"].strip(), str(c["object"]).strip()) for c in claims_data}
+                sweep = llm.extract_json(CLAIMS_SWEEP_SYSTEM, CLAIMS_SWEEP_USER.format(
+                    existing="\n".join(f"- {_render(c)}" for c in claims_data), body=body[:12000]))
+                added = 0
+                for c in sweep.get("claims", []):
+                    key = (str(c.get("subject", "")).strip(), str(c.get("object", "")).strip())
+                    if c.get("subject") and c.get("object") and key not in seen:
+                        claims_data.append(c)
+                        seen.add(key)
+                        added += 1
+                if added:
+                    log.info("누락 스윕: +%d개 (%s)", added, src.path)
+            except Exception:  # noqa: BLE001 — 스윕 실패는 치명적이지 않다
+                log.exception("누락 스윕 실패(무시): %s", src.path)
+
         # project는 위키 트리의 프로젝트 선정 로직(n-gram 빈도 canonical)과 같은 기준으로 정규화해 저장한다
         if any(c.get("project") for c in claims_data):
             from .projects import build_counts, canonical
