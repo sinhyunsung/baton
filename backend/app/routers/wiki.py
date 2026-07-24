@@ -55,7 +55,7 @@ def wiki_graph(focus: str = "", db: Session = Depends(get_session)):
     nodes = [{
         "id": f"p{p.id}", "kind": "page", "ref": p.id, "label": p.title,
         "group": (p.folder_path or "").split("/")[0] or "공통",
-        "size": 7 + min(claim_counts.get(p.id, 0), 18) * 0.7,
+        "size": 10 + min(claim_counts.get(p.id, 0), 18) * 0.8,
     } for p in pages]
     edges, seen = [], set()
 

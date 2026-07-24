@@ -4,12 +4,8 @@ import { useEffect, useRef } from "react";
 export type GNode = { id: string; kind: "page" | "claim"; ref: number; label: string; group: string; size: number; confirmed?: boolean };
 export type GEdge = { a: string; b: string; kind: "link" | "source" | "claim" };
 
-const PALETTE = ["#0064E0", "#0e9f6e", "#8b5cf6", "#e8873a", "#d64550", "#0aa5a8", "#b48a00", "#5d6c7b"];
-const groupColor = (g: string) => {
-  let h = 0;
-  for (const ch of g) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return PALETTE[h % PALETTE.length];
-};
+const PAGE_COLOR = "#0064E0";   // 위키 페이지 — 진한 파랑
+const CLAIM_COLOR = "#7cc0f2";  // 클레임 — 하늘색
 
 type Sim = GNode & { x: number; y: number; vx: number; vy: number; fixed?: boolean };
 
@@ -99,7 +95,7 @@ export default function GraphView({
       ctx.setLineDash([]);
       for (const s of sims) {
         const dim = hovered && !neighbor.has(s.id);
-        const color = s.kind === "claim" ? (s.confirmed ? "#0e9f6e" : "#9aa6b2") : groupColor(s.group);
+        const color = s.kind === "claim" ? CLAIM_COLOR : PAGE_COLOR;
         ctx.globalAlpha = dim ? 0.15 : 1;
         ctx.fillStyle = color;
         ctx.beginPath(); ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2); ctx.fill();
