@@ -129,15 +129,12 @@ def apply_wiki_updates(db: Session, src: RawSource, claims: list[Claim]):
         ),
     )
     batch_ids = {c.id for c in claims}
+    touched: list[WikiPage] = []
     for action in result.get("actions", []):
         page_id = action.get("page_id") if action.get("kind") == "update" else None
-        # LLM이 준 claim_ids 중 이번 배치에 실재하는 것만 인정. 비면(누락·환각) 문서의 클레임 전체로 폴백
-        # — 페이지가 원본 소스와 끊기는 일이 없도록 보장한다.
+        # LLM의 claim_ids는 힌트일 뿐 — 실재하는 것만 받고, 최종 보장은 아래 _reconcile_links가 한다
         evidence = [cid for cid in action.get("claim_ids", []) if cid in batch_ids]
-        if not evidence:
-            log.warning("claim_ids 누락/무효 → 소스 클레임 전체 연결 폴백: %s", action.get("title"))
-            evidence = sorted(batch_ids)
-        apply_page_update(
+        touched.append(apply_page_update(
             db,
             page_id=page_id,
             title=action.get("title", "제목 없음"),
@@ -146,7 +143,55 @@ def apply_wiki_updates(db: Session, src: RawSource, claims: list[Claim]):
             body=action.get("body", ""),
             cause="ingest",
             evidence_claim_ids=evidence,
-        )
+        ))
+    _reconcile_links(db, claims, touched)
+
+
+def _reconcile_links(db: Session, claims: list[Claim], touched: list[WikiPage]):
+    """페이지↔클레임 연결을 LLM 자기 보고에 맡기지 않는 구조적 보정.
+    클레임의 owner/project가 곧 페이지의 폴더 위치이므로 연결을 시스템이 역산한다.
+    불변식: ① 모든 클레임은 최소 1개 페이지에 연결 ② 이번에 만든/고친 페이지는 최소 1개 클레임에 연결."""
+    pages = list({p.id: p for p in touched if p}.values())
+    if not pages:
+        return
+
+    def parts(p: WikiPage) -> list[str]:
+        return [seg for seg in (p.folder_path or "").split("/") if seg]
+
+    def affinity(c: Claim, p: WikiPage) -> int:
+        pp = parts(p)
+        score = 0
+        if c.owner and len(pp) >= 3 and pp[2] == c.owner:
+            score += 2
+        if c.project and len(pp) >= 2 and pp[1] == c.project:
+            score += 1
+        return score
+
+    page_ids = [p.id for p in pages]
+    linked_pairs = {(l.claim_id, l.page_id) for l in db.scalars(
+        select(ClaimWikiLink).where(ClaimWikiLink.page_id.in_(page_ids)))}
+    linked_claims = {cid for cid, _ in linked_pairs}
+
+    # 불변식 ①: 어느 페이지에도 못 들어간 클레임 → owner/project 친화도가 가장 높은 페이지로
+    for c in claims:
+        if c.id in linked_claims:
+            continue
+        best = max(pages, key=lambda p: affinity(c, p))
+        db.add(ClaimWikiLink(claim_id=c.id, page_id=best.id))
+        linked_pairs.add((c.id, best.id))
+        log.info("연결 보정(클레임→페이지): #%s → %s", c.id, best.title)
+
+    # 불변식 ②: 클레임이 하나도 없는 페이지 → 친화도 있는 클레임, 없으면 배치 전체 연결
+    for p in pages:
+        if any(pid == p.id for _, pid in linked_pairs):
+            continue
+        fits = [c for c in claims if affinity(c, p) > 0] or claims
+        for c in fits:
+            if (c.id, p.id) not in linked_pairs:
+                db.add(ClaimWikiLink(claim_id=c.id, page_id=p.id))
+                linked_pairs.add((c.id, p.id))
+        log.warning("연결 보정(빈 페이지): %s ← 클레임 %d개", p.title, len(fits))
+    db.commit()
 
 
 def apply_page_update(
