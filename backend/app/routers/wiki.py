@@ -97,7 +97,7 @@ def wiki_graph(focus: str = "", db: Session = Depends(get_session)):
                 node_ids.add(cid)
                 nodes.append({"id": cid, "kind": "claim", "ref": c.id,
                               "label": (c.object or c.subject or "")[:26],
-                              "group": "클레임", "size": 4.5,
+                              "group": "클레임", "size": 6.5,
                               "confirmed": c.human_confirmed})
             add_edge(cid, f"p{pid}", "claim")
 
