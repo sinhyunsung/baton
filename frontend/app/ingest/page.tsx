@@ -64,7 +64,10 @@ export default function IngestPage() {
         <div className="card-lg pad24 mb20" style={{ background: running ? "rgba(0,145,255,.06)" : undefined }}>
           <div className="fx jb ac mb10">
             <div className="fs14 w7">{running ? "이번 배치 진행 중" : "마지막 배치 결과"}</div>
-            {running && prog.current && <span className="fs12 stone">처리 중: {prog.current}</span>}
+            <span className="fs12 stone">
+              {running && prog.current ? `처리 중: ${prog.current} · ` : ""}
+              {prog.elapsed_sec != null && `${running ? "경과" : "소요"} ${Math.floor(prog.elapsed_sec / 60)}분 ${prog.elapsed_sec % 60}초`}
+            </span>
           </div>
           <div className="stat-live fx gap16 mb12" style={{ flexWrap: "wrap" }}>
             <div><div className="fs24 disp w5">{prog.new ?? 0}</div><div className="fs12 stone">들어온 문서{prog.target ? ` / 목표 ${prog.target}` : ""}</div></div>

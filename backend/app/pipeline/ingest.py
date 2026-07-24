@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import os
+import time
 from datetime import datetime
 
 from sqlalchemy import select
@@ -223,8 +224,9 @@ def run_ingest(db: Session, limit: int | None = None,
     stats = {"scanned": len(files), "new": 0, "processed": 0, "skipped": 0,
              "claims": 0, "failed": 0, "dir": base}
     prog = progress if progress is not None else {}
+    started = time.time()
     prog.update(scanned=len(files), target=limit, new=0, processed=0,
-                claims=0, failed=0, skipped=0, current=None)
+                claims=0, failed=0, skipped=0, current=None, elapsed_sec=0)
     for fp in files:
         if limit is not None and stats["new"] >= limit:
             break
@@ -241,14 +243,18 @@ def run_ingest(db: Session, limit: int | None = None,
         if src.status == "failed":
             stats["failed"] += 1
         prog.update(processed=stats["processed"], claims=stats["claims"],
-                    failed=stats["failed"], current=None)
+                    failed=stats["failed"], current=None,
+                    elapsed_sec=round(time.time() - started))
         log.info("[%d/%s] %s → 클레임 %d (%s)", stats["new"], limit or "∞", src.path, n, src.status)
     # 배치가 끝나면 쌓인 집계로 기존 트리의 프로젝트명도 재정규화 (파편 폴더 병합)
     from .projects import normalize_all
-    from .wiki import refresh_all_links
+    from .wiki import dedupe_pages, refresh_all_links
 
     stats["project_merged"] = normalize_all(db)
+    stats["pages_merged"] = dedupe_pages(db)
     stats["links_refreshed"] = refresh_all_links(db)
+    stats["duration_sec"] = round(time.time() - started)
+    prog.update(elapsed_sec=stats["duration_sec"], done=True)
     return stats
 
 

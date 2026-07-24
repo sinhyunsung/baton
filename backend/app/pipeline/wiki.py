@@ -130,7 +130,7 @@ def apply_wiki_updates(db: Session, src: RawSource, claims: list[Claim]):
     )
     batch_ids = {c.id for c in claims}
     touched: list[WikiPage] = []
-    for action in result.get("actions", []):
+    for action in _collapse_same_title(result.get("actions", [])):
         page_id = action.get("page_id") if action.get("kind") == "update" else None
         # LLM의 claim_ids는 힌트일 뿐 — 실재하는 것만 받고, 최종 보장은 아래 _reconcile_links가 한다
         evidence = [cid for cid in action.get("claim_ids", []) if cid in batch_ids]
@@ -145,6 +145,72 @@ def apply_wiki_updates(db: Session, src: RawSource, claims: list[Claim]):
             evidence_claim_ids=evidence,
         ))
     _reconcile_links(db, claims, touched)
+
+
+def _norm_title(t: str) -> str:
+    return re.sub(r"[\s\W]+", "", t or "").lower()
+
+
+def _collapse_same_title(actions: list[dict]) -> list[dict]:
+    """결정적 가드: 같은 제목·같은 프로젝트의 액션 여러 개(공동 주제를 담당자별로 복제)를 1개로 병합.
+    본문이 가장 긴 액션을 남기고 claim_ids를 합치며, 담당자 세그먼트를 떼고 프로젝트 직속에 둔다."""
+    grouped: dict[tuple, list[dict]] = {}
+    for a in actions:
+        parts = [seg for seg in (a.get("folder_path") or "").split("/") if seg]
+        grouped.setdefault(("/".join(parts[:2]), _norm_title(a.get("title", ""))), []).append(a)
+    out = []
+    for (proj, _t), acts in grouped.items():
+        if len(acts) == 1:
+            out.append(acts[0])
+            continue
+        base = max(acts, key=lambda a: len(a.get("body") or ""))
+        base["claim_ids"] = [cid for a in acts for cid in (a.get("claim_ids") or [])]
+        if proj:
+            base["folder_path"] = proj
+        out.append(base)
+        log.warning("같은 제목 액션 %d개 → 1페이지 병합: %s", len(acts), base.get("title"))
+    return out
+
+
+def dedupe_pages(db: Session) -> int:
+    """같은 프로젝트·같은 제목 페이지들을 1개로 병합 (링크·버전·이슈 이관 후 삭제).
+    공동 주제가 담당자별 폴더에 복제된 경우를 정리한다. 병합본은 프로젝트 직속에 둔다."""
+    from ..models import LintIssue, WikiVersion
+
+    pages = db.scalars(select(WikiPage)).all()
+    groups: dict[tuple, list[WikiPage]] = {}
+    for p in pages:
+        parts = [seg for seg in (p.folder_path or "").split("/") if seg]
+        groups.setdefault(("/".join(parts[:2]), _norm_title(p.title)), []).append(p)
+    merged = 0
+    for (proj, _t), group in groups.items():
+        if len(group) < 2:
+            continue
+        group.sort(key=lambda p: p.id)
+        keep = group[0]
+        keep.body = max(group, key=lambda p: len(p.body or "")).body
+        folders = {p.folder_path for p in group}
+        if len(folders) > 1 and proj:
+            keep.folder_path = proj  # 담당자 세그먼트가 갈리면 프로젝트 직속으로
+        existing = {l.claim_id for l in db.scalars(
+            select(ClaimWikiLink).where(ClaimWikiLink.page_id == keep.id))}
+        for dup in group[1:]:
+            for l in db.scalars(select(ClaimWikiLink).where(ClaimWikiLink.page_id == dup.id)).all():
+                if l.claim_id in existing:
+                    db.delete(l)
+                else:
+                    l.page_id = keep.id
+                    existing.add(l.claim_id)
+            for v in db.scalars(select(WikiVersion).where(WikiVersion.page_id == dup.id)).all():
+                v.page_id = keep.id
+            for i in db.scalars(select(LintIssue).where(LintIssue.page_id == dup.id)).all():
+                i.page_id = keep.id
+            db.delete(dup)
+            merged += 1
+            log.info("페이지 병합: %s (%s) → #%s", dup.title, dup.folder_path, keep.id)
+    if merged:
+        db.commit()
+    return merged
 
 
 def _reconcile_links(db: Session, claims: list[Claim], touched: list[WikiPage]):
