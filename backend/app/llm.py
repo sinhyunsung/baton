@@ -20,6 +20,7 @@ from .config import (
     DEEPSEEK_BASE_URL,
     DEEPSEEK_MAX_TOKENS,
     DEEPSEEK_MODEL,
+    DEEPSEEK_TEMPERATURE,
     EMBED_MODEL,
     LLM_MODEL,
     LLM_PROVIDER,
@@ -45,6 +46,7 @@ def _ds_headers() -> dict:
 def _ds_body(system: str, user: str, max_tokens: int, stream: bool = False) -> dict:
     return {
         "model": DEEPSEEK_MODEL,
+        "temperature": DEEPSEEK_TEMPERATURE,
         "max_tokens": min(max_tokens, DEEPSEEK_MAX_TOKENS),
         "messages": [
             {"role": "system", "content": system},
@@ -142,7 +144,43 @@ def _parse_json(raw: str):
     start = min([i for i in (raw.find("{"), raw.find("[")) if i >= 0], default=-1)
     if start < 0:
         raise ValueError("JSON 시작 문자를 찾지 못함")
-    return json.loads(raw[start:])
+    raw = raw[start:]
+    try:
+        return json.loads(raw)
+    except ValueError:
+        repaired = _repair_truncated_json(raw)
+        log.warning("잘린/불완전 JSON 복구 성공 (원본 %d자)", len(raw))
+        return repaired
+
+
+def _repair_truncated_json(raw: str):
+    """max_tokens로 잘린 JSON 복구: 마지막 완전한 값 경계까지 자르고 괄호 균형을 맞춘다.
+    꼬리의 일부 항목은 잃지만 전체 실패는 면한다."""
+    cut = max(raw.rfind("}"), raw.rfind("]"))
+    if cut < 0:
+        raise ValueError("복구 불가: 닫는 괄호 없음")
+    trimmed = raw[: cut + 1]
+    stack = []
+    in_str = False
+    esc = False
+    for ch in trimmed:
+        if esc:
+            esc = False
+            continue
+        if ch == "\\":
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch in "{[":
+            stack.append(ch)
+        elif ch in "}]" and stack:
+            stack.pop()
+    closing = "".join("]" if c == "[" else "}" for c in reversed(stack))
+    return json.loads(trimmed + closing)
 
 
 def embed(texts: list[str], input_type: str = "search_document") -> list[list[float]]:

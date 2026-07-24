@@ -2,6 +2,7 @@
 import hashlib
 import json
 import logging
+import math
 import os
 from datetime import datetime
 
@@ -249,6 +250,72 @@ def run_ingest(db: Session, limit: int | None = None,
     stats["project_merged"] = normalize_all(db)
     stats["links_refreshed"] = refresh_all_links(db)
     return stats
+
+
+def _cos(a: list, b: list) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a)) or 1.0
+    nb = math.sqrt(sum(x * x for x in b)) or 1.0
+    return dot / (na * nb)
+
+
+def resweep_source(db: Session, src: RawSource) -> int:
+    """이미 인제스트된 문서에 누락 스윕을 재실행 — 옛 프롬프트가 놓친 사실을 소급 추출한다.
+    새 클레임은 기존 클레임이 연결된 페이지들에 친화도 기반으로 연결된다."""
+    body, _meta = extract_body(src.content)
+    if len(body.strip()) < 15:
+        return 0
+    existing = db.scalars(select(Claim).where(Claim.source_id == src.id)).all()
+    sweep = llm.extract_json(CLAIMS_SWEEP_SYSTEM, CLAIMS_SWEEP_USER.format(
+        existing="\n".join(f"- {c.rendered_text}" for c in existing) or "(없음)",
+        body=body[:12000]))
+    seen = {(c.subject.strip(), c.object.strip()) for c in existing}
+    new_data = []
+    for c in sweep.get("claims", []):
+        key = (str(c.get("subject", "")).strip(), str(c.get("object", "")).strip())
+        if c.get("subject") and c.get("object") and key not in seen:
+            new_data.append(c)
+            seen.add(key)
+    if not new_data:
+        return 0
+    from .projects import build_counts, canonical
+    counts = build_counts(db)
+    for c in new_data:
+        if c.get("project"):
+            c["project"] = canonical(str(c["project"]), counts)
+    rendered = [_render(c) for c in new_data]
+    vecs = llm.embed(rendered, input_type="search_document")
+    # 표현만 바꾼 중복 차단: 기존 클레임과 임베딩 유사도 0.93 이상이면 같은 사실로 보고 버린다
+    existing_vecs = [list(c.embedding) for c in existing if c.embedding is not None]
+    claims = []
+    for c, text, vec in zip(new_data, rendered, vecs):
+        if existing_vecs and max(_cos(vec, ev) for ev in existing_vecs) >= 0.93:
+            continue
+        claims.append(Claim(
+            subject=c["subject"], predicate=c.get("predicate", ""),
+            object=str(c["object"]), polarity=c.get("polarity", "positive"),
+            scope=c.get("scope"), time_scope=c.get("time_scope"),
+            claim_type=c.get("claim_type", "rule"),
+            owner=(c.get("owner") or None), project=(c.get("project") or None),
+            confidence=float(c.get("confidence", 0.5)),
+            source_id=src.id, rendered_text=text, embedding=vec,
+        ))
+    if not claims:
+        return 0
+    db.add_all(claims)
+    db.commit()
+    # 이 소스의 기존 클레임이 붙어있는 페이지들에 새 클레임을 친화도로 연결
+    from ..models import ClaimWikiLink, WikiPage
+    from .wiki import _reconcile_links
+    pages = {}
+    for ec in existing:
+        for l in db.scalars(select(ClaimWikiLink).where(ClaimWikiLink.claim_id == ec.id)):
+            page = db.get(WikiPage, l.page_id)
+            if page:
+                pages[page.id] = page
+    _reconcile_links(db, claims, list(pages.values()))
+    log.info("재스윕: %s → +%d개", src.path, len(claims))
+    return len(claims)
 
 
 def retry_failed(db: Session) -> int:

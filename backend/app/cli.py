@@ -52,5 +52,40 @@ def retry():
         db.close()
 
 
+@cli.command()
+def resweep(source_id: int = typer.Option(None, help="특정 문서만"),
+            everything: bool = typer.Option(False, "--all", help="완료된 전체 문서")):
+    """기존 문서에 누락 스윕 재실행 — 옛 추출이 놓친 클레임을 소급 보완."""
+    init_db()
+    db = SessionLocal()
+    try:
+        from sqlalchemy import select
+
+        from .models import RawSource
+        from .pipeline.ingest import resweep_source
+        if source_id:
+            docs = [db.get(RawSource, source_id)]
+        elif everything:
+            docs = db.scalars(select(RawSource).where(RawSource.status == "wiki_done")).all()
+        else:
+            typer.echo("--source-id 또는 --all 지정")
+            raise typer.Exit(1)
+        total = 0
+        for src in docs:
+            if not src:
+                continue
+            try:
+                n = resweep_source(db, src)
+            except Exception as e:  # noqa: BLE001 — 한 문서 실패가 전체를 멈추지 않게
+                typer.echo(f"  {src.path}: 실패 ({str(e)[:60]})")
+                db.rollback()
+                continue
+            total += n
+            typer.echo(f"  {src.path}: +{n}")
+        typer.echo(f"재스윕 완료: +{total}개 클레임")
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     cli()

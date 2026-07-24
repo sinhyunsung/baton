@@ -15,6 +15,7 @@ DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_MODEL = os.environ.get("BATON_DEEPSEEK_MODEL", "deepseek-chat")
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_MAX_TOKENS = int(os.environ.get("BATON_DEEPSEEK_MAX_TOKENS", "8000"))  # deepseek 출력 한도
+DEEPSEEK_TEMPERATURE = float(os.environ.get("BATON_DEEPSEEK_TEMPERATURE", "0.2"))  # JSON 안정성 위해 낮게
 
 # 임베딩은 프로바이더와 무관하게 Bedrock cohere 사용 (deepseek는 임베딩 API 없음, 비용도 미미)
 EMBED_MODEL = os.environ.get("BATON_EMBED_MODEL", "cohere.embed-multilingual-v3")
