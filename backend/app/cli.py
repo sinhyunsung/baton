@@ -82,7 +82,11 @@ def resweep(source_id: int = typer.Option(None, help="특정 문서만"),
                 continue
             total += n
             typer.echo(f"  {src.path}: +{n}")
-        typer.echo(f"재스윕 완료: +{total}개 클레임")
+        from .pipeline.projects import normalize_all
+        from .pipeline.wiki import refresh_all_links
+        merged = normalize_all(db)
+        refreshed = refresh_all_links(db)
+        typer.echo(f"재스윕 완료: +{total}개 클레임 (프로젝트 재정규화 {merged}건, 링크 재생성 {refreshed}건)")
     finally:
         db.close()
 
