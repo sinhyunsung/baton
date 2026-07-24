@@ -10,11 +10,17 @@ function josa(word: string, withBatchim: string, without: string): string {
 }
 
 /** 클레임 요소를 명제 문장으로 조합한다.
- * 예: "정산 대사 배치의 담당자는 [박세린]이다" / negative → "[박세린]이 아니다" */
+ * 프로젝트 맥락까지 붙여 "두레로지스 배송 API의 담당자는 [이준호]이다"처럼 자립적으로 읽히게 한다.
+ * (주어에 프로젝트명 토큰이 이미 들어있으면 중복해서 붙이지 않는다) */
 function Proposition({ claim, compact }: { claim: any; compact?: boolean }) {
-  const subj = claim.subject ?? "";
   const pred = claim.predicate ?? "";
   const obj = String(claim.object ?? "");
+  let subj = claim.subject ?? "";
+  const proj = (claim.project ?? "").trim();
+  if (proj) {
+    const overlap = proj.split(/\s+/).some((t: string) => t && subj.includes(t));
+    if (!overlap) subj = `${proj} ${subj}`;
+  }
   const tail = claim.polarity === "negative"
     ? ` ${josa(obj, "이", "가")} 아니다`
     : josa(obj, "이다", "다");
@@ -59,7 +65,6 @@ export default function ClaimCard({
         {claim.scope && <span className="bdg bdg-soft">범위 · {claim.scope}</span>}
         {claim.time_scope && <span className="bdg bdg-soft">시점 · {claim.time_scope}</span>}
         {claim.owner && <span className="bdg bdg-soft">담당 {claim.owner}</span>}
-        {claim.project && <span className="bdg bdg-soft">{claim.project}</span>}
         {claim.confidence != null && <span className="bdg bdg-soft">확신도 {Math.round(claim.confidence * 100)}%</span>}
       </div>
 
