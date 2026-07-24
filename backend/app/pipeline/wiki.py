@@ -128,8 +128,15 @@ def apply_wiki_updates(db: Session, src: RawSource, claims: list[Claim]):
             all_titles=all_titles,
         ),
     )
+    batch_ids = {c.id for c in claims}
     for action in result.get("actions", []):
         page_id = action.get("page_id") if action.get("kind") == "update" else None
+        # LLM이 준 claim_ids 중 이번 배치에 실재하는 것만 인정. 비면(누락·환각) 문서의 클레임 전체로 폴백
+        # — 페이지가 원본 소스와 끊기는 일이 없도록 보장한다.
+        evidence = [cid for cid in action.get("claim_ids", []) if cid in batch_ids]
+        if not evidence:
+            log.warning("claim_ids 누락/무효 → 소스 클레임 전체 연결 폴백: %s", action.get("title"))
+            evidence = sorted(batch_ids)
         apply_page_update(
             db,
             page_id=page_id,
@@ -138,7 +145,7 @@ def apply_wiki_updates(db: Session, src: RawSource, claims: list[Claim]):
             page_type=action.get("page_type", "concept"),
             body=action.get("body", ""),
             cause="ingest",
-            evidence_claim_ids=[cid for cid in action.get("claim_ids", []) if cid],
+            evidence_claim_ids=evidence,
         )
 
 
