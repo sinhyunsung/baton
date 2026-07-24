@@ -217,7 +217,7 @@ def _claim_full(db: Session, c: Claim) -> dict:
         "scope": c.scope, "time_scope": c.time_scope,
         "confidence": c.confidence, "human_confirmed": c.human_confirmed,
         "superseded": c.superseded, "claim_type": c.claim_type,
-        "source": {"type": src.source_type, "title": src.title, "path": src.path} if src else None,
+        "source": {"id": src.id, "type": src.source_type, "title": src.title, "path": src.path} if src else None,
     }
 
 
