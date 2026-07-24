@@ -105,8 +105,9 @@ def find_candidate_pages(db: Session, claims: list[Claim], k: int = 5) -> list[W
     return [db.get(WikiPage, pid) for pid, _ in top if db.get(WikiPage, pid)]
 
 
-def apply_wiki_updates(db: Session, src: RawSource, claims: list[Claim]):
-    """클레임을 위키에 즉시 반영: LLM이 create/update를 결정하면 바로 적용한다."""
+def apply_wiki_updates(db: Session, src: RawSource, claims: list[Claim], body: str = ""):
+    """원본 본문 + 클레임으로 위키를 즉시 갱신한다.
+    본문이 서술의 1차 재료, 클레임은 트리 배치(owner/project)·근거 연결·검증 표기의 기준."""
     candidates = find_candidate_pages(db, claims)
     claims_json = json.dumps(
         [{"id": c.id, "text": c.rendered_text, "claim_type": c.claim_type,
@@ -124,6 +125,7 @@ def apply_wiki_updates(db: Session, src: RawSource, claims: list[Claim]):
         WIKI_DECIDE_SYSTEM,
         WIKI_DECIDE_USER.format(
             source_desc=f"{src.source_type}/{src.path} — {src.title}",
+            body=(body or "")[:10000] or "(본문 없음 — 클레임만으로 작성)",
             claims_json=claims_json, candidates_json=candidates_json,
             all_titles=all_titles,
         ),

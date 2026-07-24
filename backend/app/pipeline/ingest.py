@@ -156,7 +156,7 @@ def process_source(db: Session, src: RawSource) -> int:
         db.commit()
 
         if claims:
-            apply_wiki_updates(db, src, claims)
+            apply_wiki_updates(db, src, claims, body=body)
         src.status = "wiki_done"
         db.commit()
         return len(claims)
