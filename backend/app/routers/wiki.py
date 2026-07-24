@@ -98,13 +98,22 @@ def wiki_graph(focus: str = "", db: Session = Depends(get_session)):
                 # 라벨은 "주어의 속성" — 값보다 클레임의 정체를 대표한다 ("정산 대사 배치의 담당자")
                 label = f"{c.subject}의 {c.predicate}" if c.predicate else (c.subject or c.object or "")
                 nodes.append({"id": cid, "kind": "claim", "ref": c.id,
-                              "label": label[:30],
+                              "label": label[:30], "_obj": (c.object or "")[:12],
                               "group": "클레임", "size": 6.5,
                               "confirmed": c.human_confirmed})
             add_edge(cid, f"p{pid}", "claim")
 
     for p in pages:
         add_page_claims(p.id)
+
+    # 같은 "주어의 속성" 라벨이 여러 개면(참석자 여러 명 등) 값을 덧붙여 구분한다
+    from collections import Counter
+    dup = Counter(n["label"] for n in nodes if n["kind"] == "claim")
+    for n in nodes:
+        if n["kind"] == "claim":
+            if dup[n["label"]] > 1 and n["_obj"]:
+                n["label"] = f"{n['label']}: {n['_obj']}"
+            n.pop("_obj", None)
 
     return {"nodes": nodes, "edges": edges, "focus": focus}
 
