@@ -129,14 +129,18 @@ def apply_wiki_updates(db: Session, src: RawSource, claims: list[Claim]):
         f"- [[{p.title}]] ({p.folder_path})"
         for p in db.scalars(select(WikiPage).order_by(WikiPage.updated_at.desc()).limit(150))
     ) or "(아직 페이지 없음)"
-    result = llm.extract_json(
-        WIKI_DECIDE_SYSTEM,
-        WIKI_DECIDE_USER.format(
-            source_desc=f"{src.source_type}/{src.path} — {src.title}",
-            claims_json=claims_json, candidates_json=candidates_json,
-            all_titles=all_titles,
-        ),
+    user_prompt = WIKI_DECIDE_USER.format(
+        source_desc=f"{src.source_type}/{src.path} — {src.title}",
+        claims_json=claims_json, candidates_json=candidates_json,
+        all_titles=all_titles,
     )
+    actions = _parse_action_blocks(llm.complete(WIKI_DECIDE_SYSTEM, user_prompt, max_tokens=16000))
+    if not actions:  # 형식 이탈 시 1회 재시도
+        actions = _parse_action_blocks(llm.complete(
+            WIKI_DECIDE_SYSTEM,
+            user_prompt + "\n\n(직전 출력이 ===ACTION=== 블록 형식이 아니었다. 형식을 정확히 지켜 다시 출력할 것)",
+            max_tokens=16000))
+    result = {"actions": actions}
     batch_ids = {c.id for c in claims}
     touched: list[WikiPage] = []
     for action in _collapse_same_title(result.get("actions", [])):
@@ -158,6 +162,25 @@ def apply_wiki_updates(db: Session, src: RawSource, claims: list[Claim]):
 
 def _norm_title(t: str) -> str:
     return re.sub(r"[\s\W]+", "", t or "").lower()
+
+
+_ACTION_BLOCK_RE = re.compile(
+    r"===ACTION===\s*(\{.*?\})\s*===BODY===\s*(.*?)\s*===END===", re.S)
+
+
+def _parse_action_blocks(raw: str) -> list[dict]:
+    """마커 프로토콜 파서 — 본문을 JSON 밖으로 빼서 이스케이프 파손을 원천 차단.
+    메타데이터 JSON이 깨진 블록만 버리고 나머지는 살린다 (전체 실패 없음)."""
+    actions = []
+    for meta_raw, body in _ACTION_BLOCK_RE.findall(raw or ""):
+        try:
+            meta = json.loads(meta_raw)
+        except ValueError:
+            log.warning("액션 메타데이터 JSON 파손 — 블록 건너뜀: %s", meta_raw[:120])
+            continue
+        meta["body"] = body.strip()
+        actions.append(meta)
+    return actions
 
 
 def _collapse_same_title(actions: list[dict]) -> list[dict]:
