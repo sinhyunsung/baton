@@ -64,7 +64,10 @@ class Claim(Base):
     superseded: Mapped[bool] = mapped_column(Boolean, default=False)  # 모순 판정에서 밀린 클레임
     source_id: Mapped[int] = mapped_column(ForeignKey("raw_sources.id"), index=True)
     rendered_text: Mapped[str] = mapped_column(Text)
-    embedding = mapped_column(Vector(EMBED_DIM))
+    embedding = mapped_column(Vector(EMBED_DIM))            # 문장 전체 (검색·챗봇용)
+    subject_vec = mapped_column(Vector(EMBED_DIM), nullable=True)    # 요소별 (린트 매칭용)
+    predicate_vec = mapped_column(Vector(EMBED_DIM), nullable=True)
+    object_vec = mapped_column(Vector(EMBED_DIM), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     source: Mapped[RawSource] = relationship(back_populates="claims")

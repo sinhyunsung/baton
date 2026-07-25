@@ -175,7 +175,8 @@ def process_source(db: Session, src: RawSource) -> int:
         if claims_data:
             rendered = [_render(c) for c in claims_data]
             vecs = llm.embed(rendered, input_type="search_document")
-            for c, text, vec in zip(claims_data, rendered, vecs):
+            sv, pv, ov = _element_vecs(claims_data)
+            for c, text, vec, s_v, p_v, o_v in zip(claims_data, rendered, vecs, sv, pv, ov):
                 claims.append(Claim(
                     subject=c["subject"], predicate=c.get("predicate", ""),
                     object=str(c["object"]), polarity=c.get("polarity", "positive"),
@@ -184,6 +185,7 @@ def process_source(db: Session, src: RawSource) -> int:
                     owner=(c.get("owner") or None), project=(c.get("project") or None),
                     confidence=float(c.get("confidence", 0.5)),
                     source_id=src.id, rendered_text=text, embedding=vec,
+                    subject_vec=s_v, predicate_vec=p_v, object_vec=o_v,
                 ))
             db.add_all(claims)
         src.status = "claimed"
@@ -202,6 +204,20 @@ def process_source(db: Session, src: RawSource) -> int:
         src.error = str(e)[:500]
         db.commit()
         return 0
+
+
+def _element_vecs(claims_data: list[dict]) -> tuple[list, list, list]:
+    """주어·속성·값을 각각 임베딩 (중복 문자열은 1회만 호출)."""
+    subs = [str(c.get("subject", "")) for c in claims_data]
+    preds = [str(c.get("predicate", "")) for c in claims_data]
+    objs = [str(c.get("object", "")) for c in claims_data]
+    uniq = sorted({t for t in subs + preds + objs if t})
+    vecs = llm.embed(uniq, input_type="search_document") if uniq else []
+    vmap = dict(zip(uniq, vecs))
+    empty = None
+    return ([vmap.get(t, empty) for t in subs],
+            [vmap.get(t, empty) for t in preds],
+            [vmap.get(t, empty) for t in objs])
 
 
 def _render(c: dict) -> str:
@@ -296,10 +312,11 @@ def resweep_source(db: Session, src: RawSource) -> int:
             c["project"] = canonical(str(c["project"]), counts)
     rendered = [_render(c) for c in new_data]
     vecs = llm.embed(rendered, input_type="search_document")
+    sv, pv, ov = _element_vecs(new_data)
     # 표현만 바꾼 중복 차단: 기존 클레임과 임베딩 유사도 0.93 이상이면 같은 사실로 보고 버린다
     existing_vecs = [list(c.embedding) for c in existing if c.embedding is not None]
     claims = []
-    for c, text, vec in zip(new_data, rendered, vecs):
+    for c, text, vec, s_v, p_v, o_v in zip(new_data, rendered, vecs, sv, pv, ov):
         if existing_vecs and max(_cos(vec, ev) for ev in existing_vecs) >= 0.93:
             continue
         claims.append(Claim(
@@ -310,6 +327,7 @@ def resweep_source(db: Session, src: RawSource) -> int:
             owner=(c.get("owner") or None), project=(c.get("project") or None),
             confidence=float(c.get("confidence", 0.5)),
             source_id=src.id, rendered_text=text, embedding=vec,
+            subject_vec=s_v, predicate_vec=p_v, object_vec=o_v,
         ))
     if not claims:
         return 0

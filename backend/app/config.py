@@ -27,4 +27,6 @@ CLAIM_SWEEP = os.environ.get("BATON_CLAIM_SWEEP", "1") == "1"
 # 유사도 판단 임계값
 SIM_WIKI_MATCH = 0.60   # 새 클레임 ↔ 기존 클레임: 이 이상이면 같은 주제 위키로 판단
 SIM_ANSWER_MIN = 0.55   # 챗봇: 이 미만이면 근거 0건 → 역질문 제안 (cohere v3 한국어 무관 쌍 baseline ~0.5)
-SIM_LINT_PAIR = 0.70    # 린트: 모순 후보 쌍 탐색 임계값
+SIM_LINT_PAIR = 0.70    # (구) 문장 전체 유사 임계 — 요소 매칭 도입 후 보조용
+SIM_ELEMENT = 0.70      # 린트: 요소(속성/값)별 "같다" 판정 임계
+SIM_SUBJECT_OWNER = 0.85  # 담당자 충돌은 주어가 이 이상 같을 때만 (서식 유사 오탐 방지)

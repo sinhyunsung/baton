@@ -1,9 +1,12 @@
-"""배치 린트: 변경된 위키만 선별 → 클레임 충돌 감지(담당자/참·거짓/값) → 룰 우선, 애매한 쌍만 LLM 판정.
+"""배치 린트: 변경된 위키만 선별 → 요소 매칭으로 "같은 정보" 쌍 탐색 → 판별 요소만 다르면 충돌 후보 → LLM 최종 판정.
 
-충돌 3종 (사용자가 확인 요청함에서 선택지로 고른다):
-- owner   : 같은 정보인데 담당자가 다름
-- polarity: 같은 정보에 대해 참/거짓이 갈림
-- value   : 같은 대상·속성인데 값이 다름
+요소 매칭: 주어·속성·값을 각각 임베딩해 두고,
+  주어 유사 ≥ 0.70 AND 속성 유사 ≥ 0.70  →  "같은 정보를 말하는 쌍"으로 확정.
+그 위에서 판별 요소만 검사한다:
+- owner   : 담당자가 서로 다름 → 담당자 충돌
+- polarity: 값은 같은 의미인데 긍/부정 반대 → 참/거짓 충돌
+- value   : 값의 의미가 다름 → 값 충돌
+scope·time_scope가 서로 다르면 양립 가능(이력·범위 차이)으로 보고 충돌에서 제외한다.
 """
 import json
 import logging
@@ -14,10 +17,10 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .. import llm
-from ..config import SIM_LINT_PAIR
+from ..config import SIM_ELEMENT, SIM_SUBJECT_OWNER
 from ..models import Claim, ClaimWikiLink, LintIssue, LintRun, WikiPage
 from .wiki import apply_page_update
-from ..prompts.lint import GAP_SYSTEM, VERDICT_SYSTEM, WIKI_CLAIMS_SYSTEM
+from ..prompts.lint import GAP_SYSTEM, VERDICT_SYSTEM
 
 log = logging.getLogger("baton.lint")
 
@@ -46,8 +49,7 @@ def run_lint(db: Session, progress: dict | None = None) -> LintRun:
         ok = True
         try:
             _lint_page_claims(db, page, run)   # ① 소스 클레임끼리 충돌 (담당자/참거짓/값)
-            _lint_page_wiki(db, page, run)     # ② 위키 본문 vs 소스 클레임 표류 검사
-            _lint_page_gaps(db, page, run)     # ③ 빈틈 (담당자·기한 미지정 우선)
+            _lint_page_gaps(db, page, run)     # ② 빈틈 (담당자·기한 미지정 우선)
         except Exception:  # noqa: BLE001
             log.exception("린트 실패: page=%s", page.id)
             db.rollback()
@@ -97,20 +99,51 @@ def _claims_context(a: Claim, b: Claim) -> str:
     return " ".join(filter(None, [a.subject, b.subject, a.scope, b.scope, a.time_scope, b.time_scope]))
 
 
-def _rule_conflict_hint(a: Claim, b: Claim) -> str | None:
-    """룰 필터: LLM 없이 충돌 후보 종류를 추정. None이면 후보 아님."""
-    # 담당자 충돌: 같은 얘기(유사도는 호출부에서 확인)인데 담당자가 서로 다름
+def _vcos(a, b) -> float:
+    if a is None or b is None:
+        return 0.0
+    from .ingest import _cos
+    return _cos(list(a), list(b))
+
+
+def _aux_compatible(a: str | None, b: str | None) -> bool:
+    """scope·time_scope 호환성: 한쪽이라도 없으면 호환, 둘 다 있으면 같은 의미일 때만.
+    서로 다른 범위·시점이면 두 값이 양립 가능(이력)하므로 충돌이 아니다."""
+    if not a or not b:
+        return True
+    return a.strip() == b.strip() or _values_equivalent(a, b)
+
+
+_NUM_RE = re.compile(r"\d+(?:[.,]\d+)?")
+
+
+def _numbers(text: str) -> tuple:
+    return tuple(sorted(n.replace(",", "") for n in _NUM_RE.findall(str(text or ""))))
+
+
+def _element_conflict_hint(a: Claim, b: Claim) -> str | None:
+    """요소 매칭 룰 필터: 주어·속성이 같은 쌍에서 판별 요소만 다를 때 충돌 후보.
+    (주어·속성 유사는 호출부에서 이미 확인된 상태로 들어온다)"""
+    # 범위·시점이 다르면 양립 가능 — 모순이 아니라 이력/한정 차이
+    if not _aux_compatible(a.scope, b.scope) or not _aux_compatible(a.time_scope, b.time_scope):
+        return None
+    same_obj = (_vcos(a.object_vec, b.object_vec) >= SIM_ELEMENT
+                or _values_equivalent(a.object, b.object, context=_claims_context(a, b)))
+    # 숫자 가드: 임베딩은 수량을 구분 못 한다 ("30분"≈"2시간"이 0.7을 넘음).
+    # 양쪽 값에 숫자가 있는데 숫자가 다르면 무조건 다른 값으로 본다.
+    na, nb = _numbers(a.object), _numbers(b.object)
+    if na and nb and na != nb:
+        same_obj = False
+    # 담당자 충돌: 같은 정보인데 담당자가 서로 다름
     if a.owner and b.owner and a.owner.strip() != b.owner.strip():
         return "owner"
-    same_meaning = _values_equivalent(a.object, b.object, context=_claims_context(a, b))
-    # 참/거짓 충돌: 같은 의미의 값을 두고 긍정/부정이 갈림
-    if same_meaning and a.polarity != b.polarity:
+    # 참/거짓 충돌: 값은 같은 의미인데 긍/부정이 반대
+    if same_obj and a.polarity != b.polarity:
         return "polarity"
-    # 같은 의미(포함 관계)면 충돌이 아니다 — 표현 차이만 있는 쌍은 여기서 걸러 LLM도 안 태운다
-    if same_meaning:
-        return None
-    # 값 충돌: 의미가 다른 값
-    return "value"
+    # 값 충돌: 값의 의미가 다름 (극성까지 같을 때 — 극성 다르고 값도 다르면 다른 얘기일 확률)
+    if not same_obj and a.polarity == b.polarity:
+        return "value"
+    return None
 
 
 MAX_VERDICTS_PER_PAGE = 12  # 페이지당 LLM 판정 상한 (표 문서 등에서 쌍 폭주 방지)
@@ -128,16 +161,29 @@ def _lint_page_claims(db: Session, page: WikiPage, run: LintRun):
         claim = db.get(Claim, link.claim_id)
         if not claim or claim.claim_type != "rule" or claim.superseded:
             continue
+        if claim.subject_vec is None:
+            continue
+        # 주어가 같은(≥0.70) 클레임을 넓게 모은 뒤, 속성까지 같아야 "같은 정보"로 본다
         rows = db.execute(
-            select(Claim, Claim.embedding.cosine_distance(claim.embedding).label("d"))
+            select(Claim, Claim.subject_vec.cosine_distance(claim.subject_vec).label("d"))
             .where(Claim.id != claim.id, Claim.claim_type == "rule",
-                   Claim.superseded.is_(False), Claim.source_id != claim.source_id)
-            .order_by("d").limit(4)
+                   Claim.superseded.is_(False), Claim.source_id != claim.source_id,
+                   Claim.subject_vec.isnot(None))
+            .order_by("d").limit(15)
         ).all()
         for other, dist in rows:
-            if 1 - dist < SIM_LINT_PAIR:
-                continue
-            hint = _rule_conflict_hint(claim, other)
+            subj_sim = 1 - dist
+            if subj_sim < 0.78:
+                break  # 거리순 정렬이므로 이후는 전부 문턱 미달
+            pred_same = (_vcos(claim.predicate_vec, other.predicate_vec) >= SIM_ELEMENT
+                         or (claim.predicate or "").strip() == (other.predicate or "").strip())
+            if not pred_same:
+                continue  # 같은 대상의 다른 속성 얘기 (기한 vs 담당자) — 충돌 아님
+            hint = _element_conflict_hint(claim, other)
+            # 담당자 충돌은 "정말 같은 대상"일 때만 — 서식이 비슷한 서로 다른 건(계약 A사/B사)의
+            # 담당자가 다른 건 당연하므로, 주어 유사가 아주 높을 때만 인정한다
+            if hint == "owner" and subj_sim < SIM_SUBJECT_OWNER:
+                hint = None
             if hint is None or frozenset((claim.id, other.id)) in open_pairs:
                 continue
             verdict = llm.extract_json(VERDICT_SYSTEM, json.dumps({
@@ -165,47 +211,6 @@ def _claim_view(c: Claim) -> dict:
             "object": c.object, "polarity": c.polarity, "owner": c.owner, "project": c.project,
             "scope": c.scope, "time_scope": c.time_scope,
             "confidence": c.confidence, "human_confirmed": c.human_confirmed}
-
-
-def _lint_page_wiki(db: Session, page: WikiPage, run: LintRun):
-    """위키 본문에서 클레임 즉석 추출(저장 안 함) → 소스 클레임과 대조 (본문 표류 감지)."""
-    result = llm.extract_json(WIKI_CLAIMS_SYSTEM, f"# {page.title}\n\n{page.body[:8000]}")
-    run.llm_calls += 1
-    for wc in result.get("claims", []):
-        text = f"{wc.get('subject','')}의 {wc.get('predicate','')}은(는) {wc.get('object','')}"
-        vec = llm.embed([text], input_type="search_query")[0]
-        rows = db.execute(
-            select(Claim, Claim.embedding.cosine_distance(vec).label("d"))
-            .where(Claim.claim_type == "rule", Claim.superseded.is_(False))
-            .order_by("d").limit(3)
-        ).all()
-        for claim, dist in rows:
-            if 1 - dist < SIM_LINT_PAIR:
-                continue
-            same_value = _values_equivalent(wc.get("object", ""), claim.object, context=" ".join(filter(None, [wc.get("subject"), claim.subject, claim.scope, claim.time_scope])))
-            same_owner = not wc.get("owner") or not claim.owner or wc["owner"].strip() == claim.owner.strip()
-            if same_value and same_owner:
-                continue
-            if db.scalar(select(LintIssue).where(
-                LintIssue.page_id == page.id, LintIssue.status == "open",
-                LintIssue.claim_ids.contains([claim.id]))):
-                continue
-            verdict = llm.extract_json(VERDICT_SYSTEM, json.dumps({
-                "A": {"출처": "위키 본문", **wc}, "B": _claim_view(claim),
-            }, ensure_ascii=False))
-            run.llm_calls += 1
-            if verdict.get("verdict") != "conflict":
-                continue
-            kind = verdict.get("kind") or "value"
-            db.add(LintIssue(
-                issue_type="contradiction", page_id=page.id, claim_ids=[claim.id],
-                question=verdict.get("question") or f"'{page.title}'의 값이 출처마다 다릅니다. 확인해주세요.",
-                detail=f"[{KIND_LABEL.get(kind, kind)} · 위키↔소스] {verdict.get('reason', '')}",
-                options=[o for o in verdict.get("options", []) if o][:4],
-                assignee_name=verdict.get("assignee") or claim.owner,
-            ))
-            run.contradictions += 1
-            db.commit()
 
 
 def _lint_page_gaps(db: Session, page: WikiPage, run: LintRun):
