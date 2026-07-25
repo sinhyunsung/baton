@@ -4,14 +4,17 @@ import json
 import logging
 import math
 import os
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import llm
-from ..config import CLAIM_SWEEP, DATA_SOURCES_DIR
+from ..config import CLAIM_SWEEP, DATA_SOURCES_DIR, PARALLEL_WORKERS
+from ..db import SessionLocal
 from ..models import Claim, Preprocessed, RawSource
 from ..prompts.claims import (
     CLAIMS_SWEEP_SYSTEM, CLAIMS_SWEEP_USER,
@@ -246,25 +249,59 @@ def run_ingest(db: Session, limit: int | None = None,
     started = time.time()
     prog.update(scanned=len(files), target=limit, new=0, processed=0,
                 claims=0, failed=0, skipped=0, current=None, elapsed_sec=0)
+    # ① 수집은 직렬 (빠른 IO — sha256 중복 판정 순서 보장)
+    new_ids: list[int] = []
     for fp in files:
-        if limit is not None and stats["new"] >= limit:
+        if limit is not None and len(new_ids) >= limit:
             break
         src = collect_one(db, fp, base)
         if src is None:
             stats["skipped"] += 1
             prog["skipped"] = stats["skipped"]
             continue
-        stats["new"] += 1
-        prog.update(new=stats["new"], current=src.title or src.path)
-        n = process_source(db, src)
-        stats["claims"] += n
-        stats["processed"] += 1
-        if src.status == "failed":
-            stats["failed"] += 1
-        prog.update(processed=stats["processed"], claims=stats["claims"],
-                    failed=stats["failed"], current=None,
-                    elapsed_sec=round(time.time() - started))
-        log.info("[%d/%s] %s → 클레임 %d (%s)", stats["new"], limit or "∞", src.path, n, src.status)
+        new_ids.append(src.id)
+    stats["new"] = len(new_ids)
+    prog["new"] = stats["new"]
+
+    # ② LLM 처리(추출·스윕·위키)는 문서 단위 병렬 — 병목이 LLM 대기라 효과가 크다
+    lock = threading.Lock()
+    active: list[str] = []
+
+    def worker(src_id: int) -> tuple[int, bool]:
+        wdb = SessionLocal()
+        try:
+            wsrc = wdb.get(RawSource, src_id)
+            with lock:
+                active.append(wsrc.title or wsrc.path)
+                prog["current"] = " · ".join(active[:3]) + (f" 외 {len(active)-3}" if len(active) > 3 else "")
+            n = process_source(wdb, wsrc)
+            failed = wsrc.status == "failed"
+            with lock:
+                if (wsrc.title or wsrc.path) in active:
+                    active.remove(wsrc.title or wsrc.path)
+            log.info("[병렬] %s → 클레임 %d (%s)", wsrc.path, n, wsrc.status)
+            return n, failed
+        finally:
+            wdb.close()
+
+    if new_ids:
+        with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as pool:
+            futures = [pool.submit(worker, sid) for sid in new_ids]
+            for fut in as_completed(futures):
+                try:
+                    n, failed = fut.result()
+                except Exception:  # noqa: BLE001
+                    log.exception("병렬 인제스트 워커 실패")
+                    n, failed = 0, True
+                with lock:
+                    stats["claims"] += n
+                    stats["processed"] += 1
+                    if failed:
+                        stats["failed"] += 1
+                    prog.update(processed=stats["processed"], claims=stats["claims"],
+                                failed=stats["failed"],
+                                current=" · ".join(active[:3]) or None,
+                                elapsed_sec=round(time.time() - started))
     # 배치가 끝나면 쌓인 집계로 기존 트리의 프로젝트명도 재정규화 (파편 폴더 병합)
     from .projects import normalize_all
     from .wiki import dedupe_pages, refresh_all_links

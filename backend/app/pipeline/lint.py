@@ -11,13 +11,18 @@ scope·time_scope가 서로 다르면 양립 가능(이력·범위 차이)으로
 import json
 import logging
 import re
+import threading
+import time as _time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from types import SimpleNamespace
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .. import llm
-from ..config import SIM_ELEMENT, SIM_SUBJECT_OWNER
+from ..config import PARALLEL_WORKERS, SIM_ELEMENT, SIM_SUBJECT_OWNER
+from ..db import SessionLocal
 from ..models import Claim, ClaimWikiLink, LintIssue, LintRun, WikiPage
 from .wiki import apply_page_update
 from ..prompts.lint import GAP_SYSTEM, VERDICT_SYSTEM
@@ -149,7 +154,7 @@ def _element_conflict_hint(a: Claim, b: Claim) -> str | None:
 MAX_VERDICTS_PER_PAGE = 12  # 페이지당 LLM 판정 상한 (표 문서 등에서 쌍 폭주 방지)
 
 
-def _lint_page_claims(db: Session, page: WikiPage, run: LintRun):
+def _lint_page_claims(db: Session, page: WikiPage, run):  # run: 카운터 객체(LintRun 또는 SimpleNamespace)
     """페이지에 연결된 소스 클레임 각각에 대해, 유사한 다른 소스 클레임과 충돌하는지 검사."""
     links = db.scalars(select(ClaimWikiLink).where(ClaimWikiLink.page_id == page.id)).all()
     verdicts = 0
@@ -213,7 +218,7 @@ def _claim_view(c: Claim) -> dict:
             "confidence": c.confidence, "human_confirmed": c.human_confirmed}
 
 
-def _lint_page_gaps(db: Session, page: WikiPage, run: LintRun):
+def _lint_page_gaps(db: Session, page: WikiPage, run):
     gaps = llm.extract_json(GAP_SYSTEM, f"# {page.title}\n\n{page.body[:8000]}")
     run.llm_calls += 1
     for g in gaps.get("gaps", [])[:2]:
