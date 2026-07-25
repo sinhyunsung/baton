@@ -169,6 +169,7 @@ def process_source(db: Session, src: RawSource) -> int:
             for c in result.get("claims", []):
                 key = (str(c.get("subject", "")).strip(), str(c.get("object", "")).strip())
                 if c.get("subject") and c.get("object") and key not in seen_keys:
+                    c["_chunk_idx"] = idx          # 어느 청크에서 나왔는지 (원본 역추적)
                     claims_data.append(c)
                     seen_keys.add(key)
 
@@ -214,6 +215,7 @@ def process_source(db: Session, src: RawSource) -> int:
                     department=_norm_department(c.get("department")),
                     owner=(c.get("owner") or None), project=(c.get("project") or None),
                     confidence=float(c.get("confidence", 0.5)),
+                    chunk_idx=c.get("_chunk_idx"),
                     source_id=src.id, rendered_text=text, embedding=vec,
                     subject_vec=s_v, predicate_vec=p_v, object_vec=o_v,
                 ))

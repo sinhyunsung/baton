@@ -12,7 +12,7 @@ export default function InboxPage() {
   const [sel, setSel] = useState(0);
   const [custom, setCustom] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
-  const [srcId, setSrcId] = useState<number | null>(null);
+  const [srcView, setSrcView] = useState<{ id: number; chunk?: number | null } | null>(null);
 
   const load = () => {
     api("/api/lint/issues?status=open").then((r) => { setIssues(r.issues); setCounts(r.open_counts); setSel(0); }).catch(() => {});
@@ -84,15 +84,15 @@ export default function InboxPage() {
                 /* 모순: 충돌하는 두 클레임을 나란히 전체 비교 */
                 <div className="two mb24" style={{ gap: 14 }}>
                   <ClaimCard claim={cur.claims[0]} label="클레임 A" tone="blue"
-                    onSource={cur.claims[0]?.source?.id ? () => setSrcId(cur.claims[0].source.id) : undefined} />
+                    onSource={cur.claims[0]?.source?.id ? () => setSrcView({ id: cur.claims[0].source.id, chunk: cur.claims[0].chunk_idx }) : undefined} />
                   <ClaimCard claim={cur.claims[1]} label="클레임 B" tone="red"
-                    onSource={cur.claims[1]?.source?.id ? () => setSrcId(cur.claims[1].source.id) : undefined} />
+                    onSource={cur.claims[1]?.source?.id ? () => setSrcView({ id: cur.claims[1].source.id, chunk: cur.claims[1].chunk_idx }) : undefined} />
                 </div>
               ) : cur.claims?.length === 1 ? (
                 /* 위키↔소스 표류: 소스 클레임 + 위키 기재 값 */
                 <div className="two mb24" style={{ gap: 14 }}>
                   <ClaimCard claim={cur.claims[0]} label="소스 클레임" tone="blue"
-                    onSource={cur.claims[0]?.source?.id ? () => setSrcId(cur.claims[0].source.id) : undefined} />
+                    onSource={cur.claims[0]?.source?.id ? () => setSrcView({ id: cur.claims[0].source.id, chunk: cur.claims[0].chunk_idx }) : undefined} />
                   {cur.options?.filter((o: string) => o !== cur.claims[0]?.object).slice(0, 1).map((o: string) => (
                     <div key={o} style={{ borderRadius: 16, padding: "16px 18px", background: "#fdeef0", borderLeft: "3px solid #d64550" }}>
                       <div className="fs12 w7 sub mb8">위키 기재 값</div>
@@ -140,7 +140,7 @@ export default function InboxPage() {
           </div>
         </div>
       )}
-      {srcId != null && <SourceViewer sourceId={srcId} onClose={() => setSrcId(null)} />}
+      {srcView != null && <SourceViewer sourceId={srcView.id} chunkIdx={srcView.chunk} onClose={() => setSrcView(null)} />}
     </section>
   );
 }

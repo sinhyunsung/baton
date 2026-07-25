@@ -58,6 +58,7 @@ class Claim(Base):
     time_scope: Mapped[str | None] = mapped_column(Text, nullable=True)
     claim_type: Mapped[str] = mapped_column(String(10), default="rule")  # rule | event
     department: Mapped[str | None] = mapped_column(String(60), nullable=True)  # 부서 (트리 1층)
+    chunk_idx: Mapped[int | None] = mapped_column(nullable=True)  # 추출된 시맨틱 청크 번호(1-based, 스윕=null)
     owner: Mapped[str | None] = mapped_column(String(60), nullable=True)    # 담당자 (핵심 필드)
     project: Mapped[str | None] = mapped_column(String(80), nullable=True)  # 관련 프로젝트·시스템 (핵심 필드)
     confidence: Mapped[float] = mapped_column(Float, default=0.5)

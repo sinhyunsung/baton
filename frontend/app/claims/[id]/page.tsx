@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, fmtDate, SOURCE_LABEL } from "@/lib/api";
 import ClaimCard from "@/components/ClaimCard";
+import SourceViewer from "@/components/SourceViewer";
 
 const FIELD_LABEL: [string, string][] = [
   ["subject", "주어 (subject)"],
@@ -20,15 +21,10 @@ const FIELD_LABEL: [string, string][] = [
 export default function ClaimDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const [c, setC] = useState<any>(null);
-  const [srcView, setSrcView] = useState<any>(null);
+  const [showSrc, setShowSrc] = useState(false);
 
   useEffect(() => { api(`/api/claims/${params.id}`).then(setC).catch(() => {}); }, [params.id]);
   if (!c) return <section className="scr"><div className="lede">불러오는 중…</div></section>;
-
-  async function openSource() {
-    if (!c.source) return;
-    try { setSrcView(await api(`/api/sources/${c.source.id}`)); } catch {}
-  }
 
   return (
     <section className="scr">
@@ -105,7 +101,7 @@ export default function ClaimDetailPage({ params }: { params: { id: string } }) 
               <div className="fs14 w7 mb10">원본 소스</div>
               <div className="fs13 mb2" style={{ fontWeight: 600 }}>{c.source.title ?? c.source.path}</div>
               <div className="fs12 stone mb10">{SOURCE_LABEL[c.source.type] ?? c.source.type} · {c.source.path}</div>
-              <button className="btn btn-ghost btn-sm" style={{ padding: "6px 14px", fontSize: 12 }} onClick={openSource}>원본 보기</button>
+              <button className="btn btn-ghost btn-sm" style={{ padding: "6px 14px", fontSize: 12 }} onClick={() => setShowSrc(true)}>원본 보기{c.chunk_idx ? ` (청크 ${c.chunk_idx})` : ""}</button>
             </div>
           )}
 
@@ -142,34 +138,8 @@ export default function ClaimDetailPage({ params }: { params: { id: string } }) 
         </div>
       </div>
 
-      {srcView && (
-        <div onClick={() => setSrcView(null)}
-          style={{ position: "fixed", inset: 0, background: "rgba(15,23,32,.45)", zIndex: 90,
-            display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-          <div onClick={(e) => e.stopPropagation()} className="card-lg"
-            style={{ width: "min(860px, 100%)", maxHeight: "84vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <div className="fx jb ac" style={{ padding: "16px 22px", borderBottom: "1px solid var(--hairsoft)" }}>
-              <div>
-                <div className="fs16 w7">{srcView.title ?? srcView.path}</div>
-                <div className="fs12 stone mt2">{srcView.path} · v{srcView.version} · {fmtDate(srcView.ingested_at)} 수집</div>
-              </div>
-              <button className="iconbtn" style={{ border: "none" }} onClick={() => setSrcView(null)}>
-                <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" strokeLinecap="round" /></svg>
-              </button>
-            </div>
-            <div style={{ overflow: "auto", padding: "18px 22px" }}>
-              <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 13.5, lineHeight: 1.7,
-                fontFamily: "Pretendard, sans-serif", margin: 0 }}>
-                {(() => {
-                  const ct = srcView.content ?? {};
-                  const fields: string[] = ct.content_field_names ?? [];
-                  const body = fields.map((f) => ct[f]).filter(Boolean).join("\n\n");
-                  return body || JSON.stringify(ct, null, 2);
-                })()}
-              </pre>
-            </div>
-          </div>
-        </div>
+      {showSrc && c.source && (
+        <SourceViewer sourceId={c.source.id} chunkIdx={c.chunk_idx} onClose={() => setShowSrc(false)} />
       )}
     </section>
   );

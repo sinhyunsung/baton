@@ -109,8 +109,12 @@ def source_detail(source_id: int, db: Session = Depends(get_session)):
     if not s:
         raise HTTPException(404)
     claims = db.scalars(select(Claim).where(Claim.source_id == source_id)).all()
+    from ..models import Preprocessed
+    pre = db.scalar(select(Preprocessed).where(Preprocessed.raw_source_id == source_id)
+                    .order_by(Preprocessed.id.desc()))
     return {
         "id": s.id, "type": s.source_type, "path": s.path, "title": s.title,
+        "chunks": [c.get("text", "") for c in (pre.chunks if pre else [])],
         "sha256": s.sha256, "version": s.version, "status": s.status,
         "ingested_at": s.ingested_at.isoformat(), "content": s.content,
         "claims": [{"id": c.id, "text": c.rendered_text, "claim_type": c.claim_type,
@@ -287,7 +291,7 @@ def _claim_full(db: Session, c: Claim) -> dict:
         "polarity": c.polarity, "department": c.department, "owner": c.owner, "project": c.project,
         "scope": c.scope, "time_scope": c.time_scope,
         "confidence": c.confidence, "human_confirmed": c.human_confirmed,
-        "superseded": c.superseded, "claim_type": c.claim_type,
+        "superseded": c.superseded, "claim_type": c.claim_type, "chunk_idx": c.chunk_idx,
         "source": {"id": src.id, "type": src.source_type, "title": src.title, "path": src.path} if src else None,
     }
 
