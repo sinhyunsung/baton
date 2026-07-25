@@ -27,7 +27,7 @@ MIN_COUNT_TO_MERGE = 2  # 대표 이름이 실제로 반복 등장할 때만 치
 
 
 def _tokens(name: str) -> list[str]:
-    return [t for t in re.split(r"[\s/·,()\[\]]+", (name or "").strip()) if t]
+    return [t for t in re.split(r"[\s/·,()\[\]\-_]+", (name or "").strip()) if t]
 
 
 def ngrams(name: str, max_n: int = MAX_NGRAM) -> list[str]:

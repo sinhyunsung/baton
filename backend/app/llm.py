@@ -66,7 +66,11 @@ def _complete_once(system: str, user: str, max_tokens: int) -> str:
             timeout=300,
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        content = resp.json()["choices"][0]["message"]["content"]
+        if not (content or "").strip():
+            # 고부하 시 200인데 빈 본문이 오는 경우가 있다 — 재시도 대상으로 승격
+            raise RuntimeError("DeepSeek 빈 응답 (요율 부하 추정)")
+        return content
     resp = _client.messages.create(
         model=LLM_MODEL,
         max_tokens=max_tokens,
@@ -77,15 +81,15 @@ def _complete_once(system: str, user: str, max_tokens: int) -> str:
 
 
 def complete(system: str, user: str, max_tokens: int = 4096) -> str:
-    """단일 텍스트 완성. 오류 시 1회 재시도."""
-    for attempt in (1, 2):
+    """단일 텍스트 완성. 오류·빈 응답 시 최대 3회, 점증 대기로 재시도."""
+    for attempt, wait in ((1, 2), (2, 5), (3, 0)):
         try:
             return _complete_once(system, user, max_tokens)
         except Exception as e:  # noqa: BLE001
-            log.warning("LLM 호출 실패(%d/2, %s): %s", attempt, LLM_PROVIDER, e)
-            if attempt == 2:
+            log.warning("LLM 호출 실패(%d/3, %s): %s", attempt, LLM_PROVIDER, e)
+            if attempt == 3:
                 raise
-            time.sleep(2)
+            time.sleep(wait)
     raise RuntimeError("unreachable")
 
 

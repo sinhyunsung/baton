@@ -26,6 +26,7 @@ from ..models import Claim, LintIssue, ProjectTaxonomy, WikiPage
 log = logging.getLogger("baton.taxonomy")
 
 COOCCUR_DOMINANCE = 0.6   # A 문서 중 B와 함께인 비율이 이 이상이어야 위성
+COOCCUR_MIN_DOCS = 2      # 문서 1건짜리 공출현은 증거가 아니다 (부분 데이터 오병합 방지)
 OWNER_OVERLAP_MIN = 2     # 간접 증거: 공유 담당자 최소 수
 CONTENT_SIM_MIN = 0.75    # 간접 증거: 클레임 평균 임베딩 코사인
 ASK_SIM_RANGE = (0.65, 0.75)  # 이 구간이면 사람에게 물어본다
@@ -84,6 +85,17 @@ def update_taxonomy(db: Session) -> dict:
         if owner:
             tag_owners[proj].add(owner)
 
+    # 문서 제목도 공출현 증거로 쓴다: 제목에 기존 태그가 문자 그대로 들어있으면
+    # 그 문서의 태그 집합에 합류 ("정산개편 운영 매뉴얼" 제목 → '정산' 클레임들이 '정산개편'과 공출현)
+    from ..models import RawSource
+    vocab = sorted(tag_docs, key=len, reverse=True)
+    for src in db.scalars(select(RawSource).where(RawSource.id.in_(list(doc_tags)))):
+        title = src.title or ""
+        for t in vocab:
+            if len(t) >= 3 and t in title and t not in doc_tags[src.id]:
+                doc_tags[src.id].add(t)
+                tag_docs[t].add(src.id)
+
     pinned_rows = {t.raw_tag: t for t in db.scalars(select(ProjectTaxonomy))}
     mapping: dict[str, str] = {r.raw_tag: r.canonical for r in pinned_rows.values()}
 
@@ -116,7 +128,9 @@ def update_taxonomy(db: Session) -> dict:
             if not host_count:
                 continue
             host, n = host_count.most_common(1)[0]
-            if n / len(tag_docs[a]) >= COOCCUR_DOMINANCE and len(tag_docs.get(host, set())) > len(tag_docs[a]):
+            if (n >= COOCCUR_MIN_DOCS
+                    and n / len(tag_docs[a]) >= COOCCUR_DOMINANCE
+                    and len(tag_docs.get(host, set())) > len(tag_docs[a])):
                 mapping[a] = host
                 _save_entry(db, a, host, "cooccur")
                 stats["absorbed"] += 1

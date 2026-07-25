@@ -102,6 +102,7 @@ def reset_all(db: Session = Depends(get_session)):
         "TRUNCATE preprocessed, claim_wiki_link, wiki_versions, "
         "lint_issues, lint_runs, claims, wiki_pages, raw_sources RESTART IDENTITY CASCADE"
     ))
+    db.execute(text("DELETE FROM project_taxonomy WHERE NOT human_confirmed"))
     db.commit()
     return {"reset": True}
 
