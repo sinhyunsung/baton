@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import SourceViewer from "@/components/SourceViewer";
 
 const BRAND: Record<string, { name: string; initial: string; color: string; desc: string }> = {
   slack: { name: "Slack", initial: "S", color: "#4A154B", desc: "공개 채널" },
@@ -25,8 +26,17 @@ export default function AdminPage() {
   const dirRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const [docs, setDocs] = useState<any>(null);
+  const [docQ, setDocQ] = useState("");
+  const [docQInput, setDocQInput] = useState("");
+  const [docPage, setDocPage] = useState(1);
+  const [viewId, setViewId] = useState<number | null>(null);
+
   const load = () => api("/api/sources/summary").then(setSummary).catch(() => {});
   useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, []);
+  useEffect(() => {
+    api(`/api/ingest/docs?q=${encodeURIComponent(docQ)}&page=${docPage}&per=15`).then(setDocs).catch(() => {});
+  }, [docQ, docPage, summary?.total_collected]);
 
   function onPick(list: FileList | null) {
     if (!list) return;
@@ -139,7 +149,54 @@ export default function AdminPage() {
         </div>
       )}
 
-      <div className="card pad24 mt24" style={{ border: "1px solid #f3c9c9", borderRadius: 24 }}>
+      <div className="fx jb ac mt24 mb12">
+        <span className="fs14 w7">원본 문서</span>
+        <div className="fx gap6 ac">
+          <input className="inp" style={{ height: 36, width: 240, fontSize: 13 }} placeholder="제목·경로 검색"
+            value={docQInput} onChange={(e) => setDocQInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && (setDocQ(docQInput), setDocPage(1))} />
+          <button className="btn btn-ghost btn-sm" style={{ padding: "6px 14px" }}
+            onClick={() => { setDocQ(docQInput); setDocPage(1); }}>검색</button>
+        </div>
+      </div>
+      <div className="card mb24" style={{ overflow: "hidden" }}>
+        <table className="tbl">
+          <thead><tr><th>문서</th><th style={{ width: 90 }}>상태</th><th style={{ width: 90, textAlign: "right" }}>클레임</th><th style={{ width: 110 }}></th></tr></thead>
+          <tbody>
+            {(docs?.docs ?? []).map((d: any) => (
+              <tr key={d.id}>
+                <td>
+                  <div className="w7">{d.title}</div>
+                  <div className="fs12 stone mt4">{d.path}</div>
+                </td>
+                <td>{d.status === "failed" ? <span className="bdg bdg-crit">실패</span>
+                  : d.status === "wiki_done" ? <span className="bdg bdg-success">완료</span>
+                  : <span className="bdg bdg-blue">{d.status === "collected" ? "대기" : "진행"}</span>}</td>
+                <td style={{ textAlign: "right" }} className="fs13 sub">{d.claims}개</td>
+                <td style={{ textAlign: "right" }}>
+                  <button className="btn btn-ghost btn-sm" style={{ padding: "6px 12px", fontSize: 12 }}
+                    onClick={() => setViewId(d.id)}>원본 보기</button>
+                </td>
+              </tr>
+            ))}
+            {(docs?.docs ?? []).length === 0 && (
+              <tr><td colSpan={4} className="stone">문서가 없습니다{docQ ? ` — "${docQ}" 검색 결과 없음` : ""}.</td></tr>
+            )}
+          </tbody>
+        </table>
+        {docs && docs.total > docs.per && (
+          <div className="fx jb ac" style={{ padding: "10px 16px", borderTop: "1px solid var(--hairsoft)" }}>
+            <button className="btn btn-ghost btn-sm" style={{ padding: "6px 14px" }} disabled={docPage <= 1}
+              onClick={() => setDocPage(docPage - 1)}>← 이전</button>
+            <span className="fs13 stone">{docPage} / {Math.ceil(docs.total / docs.per)} · 전체 {docs.total}건</span>
+            <button className="btn btn-ghost btn-sm" style={{ padding: "6px 14px" }}
+              disabled={docPage >= Math.ceil(docs.total / docs.per)}
+              onClick={() => setDocPage(docPage + 1)}>다음 →</button>
+          </div>
+        )}
+      </div>
+
+      <div className="card pad24" style={{ border: "1px solid #f3c9c9", borderRadius: 24 }}>
         <div className="fx jb ac">
           <div>
             <div className="fs16 w7 mb4 red">데이터 리셋</div>
@@ -156,6 +213,7 @@ export default function AdminPage() {
           업로드 파일은 서버 스테이징에 저장된 후 수집 → 클레임 추출 → 위키 반영 순으로 처리됩니다.
         </div>
       </div>
+      {viewId != null && <SourceViewer sourceId={viewId} onClose={() => setViewId(null)} />}
     </section>
   );
 }

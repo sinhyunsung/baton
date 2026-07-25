@@ -167,11 +167,15 @@ def ingest_retry():
 
 
 @router.get("/ingest/docs")
-def ingest_docs(status: str = "", page: int = 1, per: int = 20,
+def ingest_docs(status: str = "", q: str = "", page: int = 1, per: int = 20,
                 db: Session = Depends(get_session)):
-    """문서 목록 (페이징). 기본 정렬: 처리 중 → 실패 → 완료 → 대기, 각 그룹 안에서 최신순."""
+    """문서 목록 (페이징+검색). 기본 정렬: 처리 중 → 실패 → 완료 → 대기, 각 그룹 안에서 최신순."""
     per = max(5, min(per, 100))
+    search = q
     q = select(RawSource)
+    if search:
+        like = f"%{search}%"
+        q = q.where(or_(RawSource.title.ilike(like), RawSource.path.ilike(like)))
     if status == "active":
         q = q.where(RawSource.status.in_(["preprocessed", "claimed"]))
     elif status == "waiting":
