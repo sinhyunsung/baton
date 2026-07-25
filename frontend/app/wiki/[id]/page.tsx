@@ -2,10 +2,12 @@
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { api, fmtDate } from "@/lib/api";
 import ClaimCard from "@/components/ClaimCard";
 
 export default function WikiPage({ params }: { params: { id: string } }) {
+  const router = useRouter();
   const [page, setPage] = useState<any>(null);
   const [versions, setVersions] = useState<any[] | null>(null);
   const [srcView, setSrcView] = useState<any>(null);   // 열려있는 원본 소스
@@ -85,7 +87,12 @@ export default function WikiPage({ params }: { params: { id: string } }) {
             <div className="fx col gap10">
               {[...page.claims]
                 .sort((a: any, b: any) => Number(b.human_confirmed) - Number(a.human_confirmed) || Number(a.superseded) - Number(b.superseded))
-                .map((c: any) => <ClaimCard key={c.id} claim={c} tone="plain" compact />)}
+                .map((c: any) => (
+                  <div key={c.id} style={{ cursor: "pointer" }} title="클레임 상세 보기"
+                    onClick={() => router.push(`/claims/${c.id}`)}>
+                    <ClaimCard claim={c} tone="plain" compact />
+                  </div>
+                ))}
             </div>
             <div className="fs12 stone mt12" style={{ lineHeight: 1.5 }}>
               소스 클레임은 전처리 직후 추출되어 불변으로 저장되며, 역질문으로 확인되면 확인됨(human_confirmed)이 붙습니다.
