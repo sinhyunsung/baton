@@ -21,8 +21,9 @@ DEEPSEEK_TEMPERATURE = float(os.environ.get("BATON_DEEPSEEK_TEMPERATURE", "0.2")
 EMBED_MODEL = os.environ.get("BATON_EMBED_MODEL", "cohere.embed-multilingual-v3")
 EMBED_DIM = 1024
 
-# 병렬 처리: 인제스트(문서 단위)·린트(페이지 단위) 동시 실행 수
-PARALLEL_WORKERS = int(os.environ.get("BATON_PARALLEL", "4"))
+# 병렬 처리: 인제스트(문서 단위)·린트(페이지 단위) 동시 실행 수 = 최대 동시 LLM 호출 수
+# 최대 100까지. DB 풀이 이 값에 맞춰 자동 확장된다. 빈 응답·429가 늘면 낮출 것
+PARALLEL_WORKERS = min(100, int(os.environ.get("BATON_PARALLEL", "4")))
 
 # 시맨틱 청킹: 의미 급변 지점을 경계로 본문을 조각내 추출 정밀도를 높인다
 SEM_CHUNK_SIM = float(os.environ.get("BATON_SEM_CHUNK_SIM", "0.55"))   # 이 미만이면 주제 전환

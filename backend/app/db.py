@@ -1,9 +1,14 @@
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-from .config import DATABASE_URL
+from .config import DATABASE_URL, PARALLEL_WORKERS
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+engine = create_engine(
+    DATABASE_URL,
+    pool_size=PARALLEL_WORKERS + 10,   # 워커마다 세션 1개 + 여유 (API 요청·폴링용)
+    max_overflow=20,
+    pool_pre_ping=True,
+)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 
