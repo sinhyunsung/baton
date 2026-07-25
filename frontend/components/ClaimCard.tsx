@@ -35,12 +35,13 @@ function Proposition({ claim, compact }: { claim: any; compact?: boolean }) {
 
 /** 클레임 카드 — 본문은 요소를 조합한 명제 문장, 조건·메타는 칩으로. */
 export default function ClaimCard({
-  claim, label, tone = "blue", compact,
+  claim, label, tone = "blue", compact, onSource,
 }: {
   claim: any;
   label?: string;               // "클레임 A" 등 상단 라벨
   tone?: "blue" | "red" | "plain";
   compact?: boolean;            // 사이드 패널용 축약 (패딩·글자 축소)
+  onSource?: () => void;        // 지정 시 출처 줄에 "원본 보기" 버튼 표시
 }) {
   const bg = tone === "blue" ? "rgba(0,145,255,.07)" : tone === "red" ? "#fdeef0" : "var(--soft)";
   const bar = tone === "blue" ? "#0064E0" : tone === "red" ? "#d64550" : "#c6ccd4";
@@ -70,7 +71,13 @@ export default function ClaimCard({
       </div>
 
       {srcLabel && (
-        <div className="fs12 stone mt8" style={{ opacity: 0.85 }}>출처: {srcLabel}</div>
+        <div className="fx ac gap8 mt8">
+          <span className="fs12 stone" style={{ opacity: 0.85, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>출처: {srcLabel}</span>
+          {onSource && (
+            <button className="btn btn-ghost btn-sm" style={{ padding: "3px 10px", fontSize: 11, flex: "none" }}
+              onClick={(e) => { e.stopPropagation(); onSource(); }}>원본 보기</button>
+          )}
+        </div>
       )}
     </div>
   );

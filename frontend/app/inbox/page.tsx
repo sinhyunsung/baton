@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, fmtDate } from "@/lib/api";
 import ClaimCard from "@/components/ClaimCard";
+import SourceViewer from "@/components/SourceViewer";
 
 export default function InboxPage() {
   const [issues, setIssues] = useState<any[]>([]);
@@ -10,6 +11,8 @@ export default function InboxPage() {
   const [answered, setAnswered] = useState<any[]>([]);
   const [sel, setSel] = useState(0);
   const [custom, setCustom] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [srcId, setSrcId] = useState<number | null>(null);
 
   const load = () => {
     api("/api/lint/issues?status=open").then((r) => { setIssues(r.issues); setCounts(r.open_counts); setSel(0); }).catch(() => {});
@@ -23,16 +26,21 @@ export default function InboxPage() {
     setCustom(""); load();
   }
 
-  const cur = issues[sel];
+  const shown = typeFilter ? issues.filter((i) => i.type === typeFilter) : issues;
+  const cur = shown[sel];
   return (
     <section className="scr">
       <div className="kicker">확인 요청함 · 역질문</div>
       <div className="fx jb mb12" style={{ alignItems: "flex-end" }}>
         <div className="h1">확인 요청함</div>
         <div className="fx gap6">
-          <span className="bdg bdg-crit"><i />모순 {counts.contradiction ?? 0}</span>
-          <span className="bdg bdg-attn"><i />빈틈 {counts.gap ?? 0}</span>
-          <span className="bdg bdg-soft">대기 {issues.length}</span>
+          {([["", "전체", issues.length],
+             ["contradiction", "모순", counts.contradiction ?? 0],
+             ["gap", "빈틈", counts.gap ?? 0],
+             ["taxonomy", "분류", counts.taxonomy ?? 0]] as [string, string, number][]).map(([key, label, n]) => (
+            <button key={key} className={`pill ${typeFilter === key ? "on" : ""}`}
+              onClick={() => { setTypeFilter(key); setSel(0); }}>{label} {n}</button>
+          ))}
         </div>
       </div>
       <div className="lede mb24">
@@ -40,12 +48,12 @@ export default function InboxPage() {
         답변이 확정되면 소스 클레임에 human_confirmed가 기록되고 위키에 즉시 반영됩니다.
       </div>
 
-      {issues.length === 0 ? (
-        <div className="card-lg pad24 chc mb24">대기 중인 확인 요청이 없습니다. <Link href="/lint">린트를 실행</Link>해보세요.</div>
+      {shown.length === 0 ? (
+        <div className="card-lg pad24 chc mb24">{typeFilter ? "이 유형의 대기 요청이 없습니다." : <>대기 중인 확인 요청이 없습니다. <Link href="/lint">린트를 실행</Link>해보세요.</>}</div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 24 }}>
           <div className="fx col gap10" style={{ alignSelf: "flex-start" }}>
-            {issues.map((it, i) => (
+            {shown.map((it, i) => (
               <div key={it.id} className={`selrow ${i === sel ? "on" : ""}`} onClick={() => setSel(i)}>
                 <div className="fx ac gap6 mb6">
                   <span className={`bdg ${it.type === "contradiction" ? "bdg-crit" : it.type === "taxonomy" ? "bdg-ink" : "bdg-attn"}`}>
@@ -75,13 +83,16 @@ export default function InboxPage() {
               {cur.claims?.length >= 2 ? (
                 /* 모순: 충돌하는 두 클레임을 나란히 전체 비교 */
                 <div className="two mb24" style={{ gap: 14 }}>
-                  <ClaimCard claim={cur.claims[0]} label="클레임 A" tone="blue" />
-                  <ClaimCard claim={cur.claims[1]} label="클레임 B" tone="red" />
+                  <ClaimCard claim={cur.claims[0]} label="클레임 A" tone="blue"
+                    onSource={cur.claims[0]?.source?.id ? () => setSrcId(cur.claims[0].source.id) : undefined} />
+                  <ClaimCard claim={cur.claims[1]} label="클레임 B" tone="red"
+                    onSource={cur.claims[1]?.source?.id ? () => setSrcId(cur.claims[1].source.id) : undefined} />
                 </div>
               ) : cur.claims?.length === 1 ? (
                 /* 위키↔소스 표류: 소스 클레임 + 위키 기재 값 */
                 <div className="two mb24" style={{ gap: 14 }}>
-                  <ClaimCard claim={cur.claims[0]} label="소스 클레임" tone="blue" />
+                  <ClaimCard claim={cur.claims[0]} label="소스 클레임" tone="blue"
+                    onSource={cur.claims[0]?.source?.id ? () => setSrcId(cur.claims[0].source.id) : undefined} />
                   {cur.options?.filter((o: string) => o !== cur.claims[0]?.object).slice(0, 1).map((o: string) => (
                     <div key={o} style={{ borderRadius: 16, padding: "16px 18px", background: "#fdeef0", borderLeft: "3px solid #d64550" }}>
                       <div className="fs12 w7 sub mb8">위키 기재 값</div>
@@ -129,6 +140,7 @@ export default function InboxPage() {
           </div>
         </div>
       )}
+      {srcId != null && <SourceViewer sourceId={srcId} onClose={() => setSrcId(null)} />}
     </section>
   );
 }
