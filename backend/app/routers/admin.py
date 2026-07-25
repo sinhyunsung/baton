@@ -6,7 +6,7 @@ import time
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from ..db import SessionLocal, get_session
@@ -162,6 +162,36 @@ def ingest_scan(body: IngestIn):
 @router.post("/ingest/retry")
 def ingest_retry(db: Session = Depends(get_session)):
     return {"retried_ok": retry_failed(db)}
+
+
+@router.get("/ingest/docs")
+def ingest_docs(status: str = "", page: int = 1, per: int = 20,
+                db: Session = Depends(get_session)):
+    """문서 목록 (페이징). 기본 정렬: 처리 중 → 실패 → 완료 → 대기, 각 그룹 안에서 최신순."""
+    per = max(5, min(per, 100))
+    q = select(RawSource)
+    if status == "active":
+        q = q.where(RawSource.status.in_(["preprocessed", "claimed"]))
+    elif status == "waiting":
+        q = q.where(RawSource.status == "collected")
+    elif status:
+        q = q.where(RawSource.status == status)
+    total = db.scalar(select(func.count()).select_from(q.subquery()))
+    priority = case(
+        (RawSource.status.in_(["preprocessed", "claimed"]), 0),  # 지금 처리 중인 것 먼저
+        (RawSource.status == "failed", 1),
+        (RawSource.status == "wiki_done", 2),
+        else_=3,                                                  # 대기(collected)는 마지막
+    )
+    rows = db.scalars(
+        q.order_by(priority, RawSource.id.desc())
+        .offset((page - 1) * per).limit(per)
+    ).all()
+    return {"total": total, "page": page, "per": per, "docs": [{
+        "id": s2.id, "type": s2.source_type, "title": s2.title, "path": s2.path,
+        "status": s2.status, "failed_stage": s2.failed_stage, "error": s2.error,
+        "claims": db.scalar(select(func.count()).select_from(Claim).where(Claim.source_id == s2.id)),
+    } for s2 in rows]}
 
 
 @router.get("/ingest/status")

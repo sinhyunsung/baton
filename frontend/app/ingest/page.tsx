@@ -35,8 +35,14 @@ function Track({ status, failedStage }: { status: string; failedStage?: string |
 
 export default function IngestPage() {
   const [status, setStatus] = useState<any>(null);
-  const load = () => api("/api/ingest/status").then(setStatus).catch(() => {});
-  useEffect(() => { load(); const t = setInterval(load, 2500); return () => clearInterval(t); }, []);
+  const [docs, setDocs] = useState<any>(null);
+  const [filter, setFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const load = () => {
+    api("/api/ingest/status").then(setStatus).catch(() => {});
+    api(`/api/ingest/docs?status=${filter}&page=${page}&per=20`).then(setDocs).catch(() => {});
+  };
+  useEffect(() => { load(); const t = setInterval(load, 2500); return () => clearInterval(t); }, [filter, page]);
 
   const by = status?.by_status ?? {};
   const running = status?.job_running === "ingest";
@@ -86,18 +92,24 @@ export default function IngestPage() {
 
       {status?.by_status && (
         <div className="fx gap6 mb10" style={{ flexWrap: "wrap" }}>
-          <span className="bdg bdg-soft">대기 {status.by_status.collected ?? 0}</span>
-          <span className="bdg bdg-blue">진행 {(status.by_status.preprocessed ?? 0) + (status.by_status.claimed ?? 0)}</span>
-          <span className="bdg bdg-success">완료 {status.by_status.wiki_done ?? 0}</span>
-          <span className={`bdg ${(status.by_status.failed ?? 0) > 0 ? "bdg-crit" : "bdg-soft"}`}>실패 {status.by_status.failed ?? 0}</span>
-          <span className="fs12 stone" style={{ alignSelf: "center" }}>아래 표는 활동 중·완료 문서 우선 30건</span>
+          {([["", "전체", null],
+             ["active", "진행", (status.by_status.preprocessed ?? 0) + (status.by_status.claimed ?? 0)],
+             ["waiting", "대기", status.by_status.collected ?? 0],
+             ["wiki_done", "완료", status.by_status.wiki_done ?? 0],
+             ["failed", "실패", status.by_status.failed ?? 0]] as [string, string, number | null][]).map(([key, label, n]) => (
+            <button key={key} className={`pill ${filter === key ? "on" : ""}`}
+              onClick={() => { setFilter(key); setPage(1); }}>
+              {label}{n != null ? ` ${n}` : ""}
+            </button>
+          ))}
+          <span className="fs12 stone" style={{ alignSelf: "center" }}>처리 중 → 실패 → 완료 → 대기 순 정렬</span>
         </div>
       )}
       <div className="card mb20" style={{ overflow: "hidden" }}>
         <table className="tbl">
           <thead><tr><th>소스</th><th>단계</th><th style={{ width: 260 }}>진행</th><th style={{ width: 120, textAlign: "right" }}>클레임</th></tr></thead>
           <tbody>
-            {(status?.recent ?? []).map((s: any) => (
+            {(docs?.docs ?? status?.recent ?? []).map((s: any) => (
               <tr key={s.id}>
                 <td>
                   <div className="w7">{SOURCE_LABEL[s.type] ?? s.type} · {s.title}</div>
@@ -117,11 +129,21 @@ export default function IngestPage() {
                 </td>
               </tr>
             ))}
-            {(!status?.recent || status.recent.length === 0) && (
-              <tr><td colSpan={4} className="stone">아직 인제스트된 문서가 없습니다. 데이터 소스에서 파일을 올려 시작하세요.</td></tr>
+            {((docs?.docs ?? status?.recent ?? []).length === 0) && (
+              <tr><td colSpan={4} className="stone">문서가 없습니다. 데이터 소스에서 파일을 올려 시작하세요.</td></tr>
             )}
           </tbody>
         </table>
+        {docs && docs.total > docs.per && (
+          <div className="fx jb ac" style={{ padding: "10px 16px", borderTop: "1px solid var(--hairsoft)" }}>
+            <button className="btn btn-ghost btn-sm" style={{ padding: "6px 14px" }} disabled={page <= 1}
+              onClick={() => setPage(page - 1)}>← 이전</button>
+            <span className="fs13 stone">{page} / {Math.ceil(docs.total / docs.per)} 페이지 · 전체 {docs.total}건</span>
+            <button className="btn btn-ghost btn-sm" style={{ padding: "6px 14px" }}
+              disabled={page >= Math.ceil(docs.total / docs.per)}
+              onClick={() => setPage(page + 1)}>다음 →</button>
+          </div>
+        )}
       </div>
 
       <div className="two">
