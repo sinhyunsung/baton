@@ -76,6 +76,33 @@ def sources_config(body: SourceDirIn, db: Session = Depends(get_session)):
     return {"dir": body.dir.strip(), "files_found": n}
 
 
+@router.get("/sources/browse")
+def sources_browse(prefix: str = "", db: Session = Depends(get_session)):
+    """원본 문서를 경로 기반 폴더 구조로 탐색. prefix 하위의 폴더(문서 수)와 파일을 반환."""
+    pre = prefix.strip("/")
+    rows = db.execute(select(RawSource.id, RawSource.path, RawSource.title, RawSource.status)).all()
+    folders: dict[str, int] = {}
+    files = []
+    for sid, path, title, status in rows:
+        rest = path
+        if pre:
+            if not path.startswith(pre + "/"):
+                continue
+            rest = path[len(pre) + 1:]
+        seg, _sep, tail = rest.partition("/")
+        if tail:
+            folders[seg] = folders.get(seg, 0) + 1
+        else:
+            files.append({"id": sid, "name": seg, "title": title, "status": status})
+    for f in files:
+        f["claims"] = db.scalar(select(func.count()).select_from(Claim).where(Claim.source_id == f["id"]))
+    return {
+        "prefix": pre,
+        "folders": [{"name": k, "count": v} for k, v in sorted(folders.items())],
+        "files": sorted(files, key=lambda x: x["name"]),
+    }
+
+
 @router.get("/sources/{source_id}")
 def source_detail(source_id: int, db: Session = Depends(get_session)):
     s = db.get(RawSource, source_id)

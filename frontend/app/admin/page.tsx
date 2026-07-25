@@ -26,17 +26,15 @@ export default function AdminPage() {
   const dirRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [docs, setDocs] = useState<any>(null);
-  const [docQ, setDocQ] = useState("");
-  const [docQInput, setDocQInput] = useState("");
-  const [docPage, setDocPage] = useState(1);
+  const [browse, setBrowse] = useState<any>(null);
+  const [prefix, setPrefix] = useState("");
   const [viewId, setViewId] = useState<number | null>(null);
 
   const load = () => api("/api/sources/summary").then(setSummary).catch(() => {});
   useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, []);
   useEffect(() => {
-    api(`/api/ingest/docs?q=${encodeURIComponent(docQ)}&page=${docPage}&per=15`).then(setDocs).catch(() => {});
-  }, [docQ, docPage, summary?.total_collected]);
+    api(`/api/sources/browse?prefix=${encodeURIComponent(prefix)}`).then(setBrowse).catch(() => {});
+  }, [prefix, summary?.total_collected]);
 
   function onPick(list: FileList | null) {
     if (!list) return;
@@ -135,7 +133,8 @@ export default function AdminPage() {
           {types.map((t) => {
             const b = BRAND[t] ?? { name: t, initial: t[0]?.toUpperCase() ?? "?", color: "#5d6c7b", desc: "업로드 폴더" };
             return (
-              <div className="card-lg pad24" key={t}>
+              <div className="card-lg pad24" key={t} style={{ cursor: "pointer" }}
+                onClick={() => setPrefix(t)} title="폴더 열기">
                 <div className="fx jb ac mb14">
                   <div style={{ width: 40, height: 40, borderRadius: 12, background: b.color, color: "#fff",
                     display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>{b.initial}</div>
@@ -150,50 +149,54 @@ export default function AdminPage() {
       )}
 
       <div className="fx jb ac mt24 mb12">
-        <span className="fs14 w7">원본 문서</span>
-        <div className="fx gap6 ac">
-          <input className="inp" style={{ height: 36, width: 240, fontSize: 13 }} placeholder="제목·경로 검색"
-            value={docQInput} onChange={(e) => setDocQInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && (setDocQ(docQInput), setDocPage(1))} />
-          <button className="btn btn-ghost btn-sm" style={{ padding: "6px 14px" }}
-            onClick={() => { setDocQ(docQInput); setDocPage(1); }}>검색</button>
+        <div className="fx ac gap6" style={{ flexWrap: "wrap" }}>
+          <span className="fs14 w7">원본 문서</span>
+          <span className="fs13 stone">·</span>
+          <button className="fs13" style={{ color: prefix ? "var(--primary-deep)" : "var(--ink)", fontWeight: 700, background: "none", border: "none", cursor: "pointer" }}
+            onClick={() => setPrefix("")}>전체</button>
+          {prefix.split("/").filter(Boolean).map((seg, i, arr) => (
+            <span key={i} className="fx ac gap6">
+              <span className="stone">›</span>
+              <button className="fs13" style={{ color: i === arr.length - 1 ? "var(--ink)" : "var(--primary-deep)", fontWeight: 700, background: "none", border: "none", cursor: "pointer" }}
+                onClick={() => setPrefix(arr.slice(0, i + 1).join("/"))}>{seg}</button>
+            </span>
+          ))}
         </div>
+        <span className="fs12 stone">폴더 {browse?.folders?.length ?? 0} · 문서 {browse?.files?.length ?? 0}</span>
       </div>
       <div className="card mb24" style={{ overflow: "hidden" }}>
         <table className="tbl">
-          <thead><tr><th>문서</th><th style={{ width: 90 }}>상태</th><th style={{ width: 90, textAlign: "right" }}>클레임</th><th style={{ width: 110 }}></th></tr></thead>
           <tbody>
-            {(docs?.docs ?? []).map((d: any) => (
-              <tr key={d.id}>
+            {(browse?.folders ?? []).map((f: any) => (
+              <tr key={"d" + f.name} style={{ cursor: "pointer" }}
+                onClick={() => setPrefix(prefix ? `${prefix}/${f.name}` : f.name)}>
                 <td>
-                  <div className="w7">{d.title}</div>
-                  <div className="fs12 stone mt4">{d.path}</div>
+                  <span className="w7">📁 {f.name}</span>
+                  <span className="fs12 stone" style={{ marginLeft: 8 }}>문서 {f.count}건</span>
                 </td>
-                <td>{d.status === "failed" ? <span className="bdg bdg-crit">실패</span>
+                <td style={{ width: 90 }}></td>
+                <td style={{ width: 110, textAlign: "right" }} className="fs13 stone">열기 ›</td>
+              </tr>
+            ))}
+            {(browse?.files ?? []).map((d: any) => (
+              <tr key={"f" + d.id} style={{ cursor: "pointer" }} onClick={() => setViewId(d.id)}>
+                <td>
+                  <div className="w7">📄 {d.title}</div>
+                  <div className="fs12 stone mt4">{d.name} · 클레임 {d.claims}개</div>
+                </td>
+                <td style={{ width: 90 }}>{d.status === "failed" ? <span className="bdg bdg-crit">실패</span>
                   : d.status === "wiki_done" ? <span className="bdg bdg-success">완료</span>
                   : <span className="bdg bdg-blue">{d.status === "collected" ? "대기" : "진행"}</span>}</td>
-                <td style={{ textAlign: "right" }} className="fs13 sub">{d.claims}개</td>
-                <td style={{ textAlign: "right" }}>
-                  <button className="btn btn-ghost btn-sm" style={{ padding: "6px 12px", fontSize: 12 }}
-                    onClick={() => setViewId(d.id)}>원본 보기</button>
+                <td style={{ width: 110, textAlign: "right" }}>
+                  <span className="fs13" style={{ color: "var(--primary-deep)", fontWeight: 700 }}>원본 보기</span>
                 </td>
               </tr>
             ))}
-            {(docs?.docs ?? []).length === 0 && (
-              <tr><td colSpan={4} className="stone">문서가 없습니다{docQ ? ` — "${docQ}" 검색 결과 없음` : ""}.</td></tr>
+            {(browse?.folders ?? []).length === 0 && (browse?.files ?? []).length === 0 && (
+              <tr><td className="stone">비어 있습니다. 파일을 올려 인제스트를 시작하세요.</td></tr>
             )}
           </tbody>
         </table>
-        {docs && docs.total > docs.per && (
-          <div className="fx jb ac" style={{ padding: "10px 16px", borderTop: "1px solid var(--hairsoft)" }}>
-            <button className="btn btn-ghost btn-sm" style={{ padding: "6px 14px" }} disabled={docPage <= 1}
-              onClick={() => setDocPage(docPage - 1)}>← 이전</button>
-            <span className="fs13 stone">{docPage} / {Math.ceil(docs.total / docs.per)} · 전체 {docs.total}건</span>
-            <button className="btn btn-ghost btn-sm" style={{ padding: "6px 14px" }}
-              disabled={docPage >= Math.ceil(docs.total / docs.per)}
-              onClick={() => setDocPage(docPage + 1)}>다음 →</button>
-          </div>
-        )}
       </div>
 
       <div className="card pad24" style={{ border: "1px solid #f3c9c9", borderRadius: 24 }}>
