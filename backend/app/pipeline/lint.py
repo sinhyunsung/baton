@@ -24,7 +24,7 @@ log = logging.getLogger("baton.lint")
 KIND_LABEL = {"owner": "담당자 충돌", "polarity": "참/거짓 충돌", "value": "값 충돌"}
 
 
-def run_lint(db: Session) -> LintRun:
+def run_lint(db: Session, progress: dict | None = None) -> LintRun:
     run = LintRun()
     db.add(run)
     db.commit()
@@ -35,7 +35,15 @@ def run_lint(db: Session) -> LintRun:
         )
     ).all()
 
+    import time as _time
+    prog = progress if progress is not None else {}
+    started = _time.time()
+    prog.update(pages_total=len(pages), pages_checked=0, llm_calls=0,
+                contradictions=0, gaps=0, elapsed_sec=0, current=None)
+
     for page in pages:
+        prog["current"] = page.title
+        ok = True
         try:
             _lint_page_claims(db, page, run)   # ① 소스 클레임끼리 충돌 (담당자/참거짓/값)
             _lint_page_wiki(db, page, run)     # ② 위키 본문 vs 소스 클레임 표류 검사
@@ -43,12 +51,18 @@ def run_lint(db: Session) -> LintRun:
         except Exception:  # noqa: BLE001
             log.exception("린트 실패: page=%s", page.id)
             db.rollback()
-        page.lint_checked_at = datetime.utcnow()
+            ok = False
+        if ok:  # 실패한 페이지는 미검사로 남겨 다음 실행에서 다시 본다
+            page.lint_checked_at = datetime.utcnow()
         run.pages_checked += 1
         db.commit()
+        prog.update(pages_checked=run.pages_checked, llm_calls=run.llm_calls,
+                    contradictions=run.contradictions, gaps=run.gaps,
+                    elapsed_sec=round(_time.time() - started), current=None)
 
     run.finished_at = datetime.utcnow()
     db.commit()
+    prog.update(done=True, elapsed_sec=round(_time.time() - started))
     return run
 
 
@@ -99,10 +113,18 @@ def _rule_conflict_hint(a: Claim, b: Claim) -> str | None:
     return "value"
 
 
+MAX_VERDICTS_PER_PAGE = 12  # 페이지당 LLM 판정 상한 (표 문서 등에서 쌍 폭주 방지)
+
+
 def _lint_page_claims(db: Session, page: WikiPage, run: LintRun):
     """페이지에 연결된 소스 클레임 각각에 대해, 유사한 다른 소스 클레임과 충돌하는지 검사."""
     links = db.scalars(select(ClaimWikiLink).where(ClaimWikiLink.page_id == page.id)).all()
+    verdicts = 0
+    open_issues = db.scalars(select(LintIssue).where(LintIssue.status == "open")).all()
+    open_pairs = {frozenset(i.claim_ids) for i in open_issues if i.claim_ids and len(i.claim_ids) == 2}
     for link in links:
+        if verdicts >= MAX_VERDICTS_PER_PAGE:
+            break
         claim = db.get(Claim, link.claim_id)
         if not claim or claim.claim_type != "rule" or claim.superseded:
             continue
@@ -116,12 +138,13 @@ def _lint_page_claims(db: Session, page: WikiPage, run: LintRun):
             if 1 - dist < SIM_LINT_PAIR:
                 continue
             hint = _rule_conflict_hint(claim, other)
-            if hint is None or _pair_has_open_issue(db, claim.id, other.id):
+            if hint is None or frozenset((claim.id, other.id)) in open_pairs:
                 continue
             verdict = llm.extract_json(VERDICT_SYSTEM, json.dumps({
                 "A": _claim_view(claim), "B": _claim_view(other),
             }, ensure_ascii=False))
             run.llm_calls += 1
+            verdicts += 1
             if verdict.get("verdict") != "conflict":
                 continue
             kind = verdict.get("kind") or hint

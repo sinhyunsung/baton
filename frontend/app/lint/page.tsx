@@ -11,6 +11,7 @@ export default function LintPage() {
 
   const last = status?.last_run;
   const running = status?.job_running === "lint";
+  const prog = status?.job_progress ?? {};
   const flow = ["변경된 위키만 선별", "위키 클레임 즉석 추출", "룰 판정 먼저", "애매한 것만 LLM", "모순·빈틈 → 확인 요청함"];
 
   return (
@@ -25,8 +26,30 @@ export default function LintPage() {
       </div>
       <div className="lede mb24">
         린트는 인제스트와 분리된 배치입니다. 변경된 위키만 선별 → 위키 클레임 즉석 추출(저장 안 함) →
-        관련 소스 클레임과 대조 → 룰로 먼저 걸러내고 애매한 쌍만 LLM(Sonnet 4.6)이 판정합니다.
+        관련 소스 클레임과 대조 → 룰로 먼저 걸러내고 애매한 쌍만 LLM이 판정합니다.
       </div>
+
+      {running && prog.pages_total != null && (
+        <div className="card-lg pad24 mb20" style={{ background: "rgba(0,145,255,.06)" }}>
+          <div className="fx jb ac mb10">
+            <div className="fs14 w7">린트 진행 중</div>
+            <span className="fs12 stone">
+              {prog.current ? `검사 중: ${prog.current} · ` : ""}
+              경과 {Math.floor((prog.elapsed_sec ?? 0) / 60)}분 {(prog.elapsed_sec ?? 0) % 60}초
+            </span>
+          </div>
+          <div className="stat-live fx gap16 mb12" style={{ flexWrap: "wrap" }}>
+            <div><div className="fs24 disp w5">{prog.pages_checked ?? 0}/{prog.pages_total}</div><div className="fs12 stone">검사 페이지</div></div>
+            <div><div className="fs24 disp w5">{prog.llm_calls ?? 0}</div><div className="fs12 stone">LLM 판정</div></div>
+            <div><div className="fs24 disp w5" style={{ color: (prog.contradictions ?? 0) > 0 ? "var(--crit)" : undefined }}>{prog.contradictions ?? 0}</div><div className="fs12 stone">모순 발견</div></div>
+            <div><div className="fs24 disp w5">{prog.gaps ?? 0}</div><div className="fs12 stone">빈틈 발견</div></div>
+          </div>
+          <div style={{ height: 8, borderRadius: 99, background: "var(--hairsoft)", overflow: "hidden" }}>
+            <div style={{ width: `${prog.pages_total ? Math.round((prog.pages_checked ?? 0) / prog.pages_total * 100) : 0}%`,
+              height: "100%", borderRadius: 99, background: "var(--primary)", transition: "width .6s" }} />
+          </div>
+        </div>
+      )}
 
       <div className="grid3 mb24">
         <div className="card-lg pad24">

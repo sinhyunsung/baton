@@ -12,7 +12,7 @@ LLM_PROVIDER = os.environ.get("BATON_LLM_PROVIDER", "bedrock").lower()
 LLM_MODEL = os.environ.get("BATON_LLM_MODEL", "us.anthropic.claude-sonnet-4-6")
 
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
-DEEPSEEK_MODEL = os.environ.get("BATON_DEEPSEEK_MODEL", "deepseek-chat")
+DEEPSEEK_MODEL = os.environ.get("BATON_DEEPSEEK_MODEL", "deepseek-v4-flash")
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_MAX_TOKENS = int(os.environ.get("BATON_DEEPSEEK_MAX_TOKENS", "8000"))  # deepseek 출력 한도
 DEEPSEEK_TEMPERATURE = float(os.environ.get("BATON_DEEPSEEK_TEMPERATURE", "0.2"))  # JSON 안정성 위해 낮게

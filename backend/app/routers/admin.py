@@ -184,7 +184,7 @@ def ingest_status(db: Session = Depends(get_session)):
 # ---------- 린트 ----------
 @router.post("/lint/run")
 def lint_run():
-    _run_bg("lint", lambda db, prog: run_lint(db))
+    _run_bg("lint", lambda db, prog: run_lint(db, progress=prog))
     return {"started": True}
 
 
@@ -193,6 +193,7 @@ def lint_status(db: Session = Depends(get_session)):
     last = db.scalar(select(LintRun).order_by(LintRun.id.desc()).limit(1))
     return {
         "job_running": _job_state["running"],
+        "job_progress": _job_state["progress"],
         "last_run": None if not last else {
             "id": last.id, "pages_checked": last.pages_checked, "llm_calls": last.llm_calls,
             "contradictions": last.contradictions, "gaps": last.gaps,
