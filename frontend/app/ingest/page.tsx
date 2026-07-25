@@ -84,6 +84,15 @@ export default function IngestPage() {
         </div>
       )}
 
+      {status?.by_status && (
+        <div className="fx gap6 mb10" style={{ flexWrap: "wrap" }}>
+          <span className="bdg bdg-soft">대기 {status.by_status.collected ?? 0}</span>
+          <span className="bdg bdg-blue">진행 {(status.by_status.preprocessed ?? 0) + (status.by_status.claimed ?? 0)}</span>
+          <span className="bdg bdg-success">완료 {status.by_status.wiki_done ?? 0}</span>
+          <span className={`bdg ${(status.by_status.failed ?? 0) > 0 ? "bdg-crit" : "bdg-soft"}`}>실패 {status.by_status.failed ?? 0}</span>
+          <span className="fs12 stone" style={{ alignSelf: "center" }}>아래 표는 활동 중·완료 문서 우선 30건</span>
+        </div>
+      )}
       <div className="card mb20" style={{ overflow: "hidden" }}>
         <table className="tbl">
           <thead><tr><th>소스</th><th>단계</th><th style={{ width: 260 }}>진행</th><th style={{ width: 120, textAlign: "right" }}>클레임</th></tr></thead>

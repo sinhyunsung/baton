@@ -167,7 +167,13 @@ def ingest_retry(db: Session = Depends(get_session)):
 @router.get("/ingest/status")
 def ingest_status(db: Session = Depends(get_session)):
     by_status = dict(db.execute(select(RawSource.status, func.count()).group_by(RawSource.status)).all())
-    recent = db.scalars(select(RawSource).order_by(RawSource.id.desc()).limit(30)).all()
+    # 활동 중·완료 문서를 앞으로 — 병렬 배치 중엔 최신 id가 전부 "대기(collected)"라
+    # 최신순만 보여주면 테이블이 얼어 보인다
+    recent = db.scalars(
+        select(RawSource)
+        .order_by((RawSource.status == "collected").asc(), RawSource.id.desc())
+        .limit(30)
+    ).all()
     n_claims = db.scalar(select(func.count()).select_from(Claim))
     return {
         "job_running": _job_state["running"],
