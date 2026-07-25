@@ -180,6 +180,10 @@ def _lint_page_claims(db: Session, page: WikiPage, run):  # run: 카운터 객�
             subj_sim = 1 - dist
             if subj_sim < 0.78:
                 break  # 거리순 정렬이므로 이후는 전부 문턱 미달
+            # 주어 숫자 가드: "1호점 vs 2호점", "1월 계약 vs 2월 계약"은 벡터가 가까워도 다른 대상
+            sn_a, sn_b = _numbers(claim.subject), _numbers(other.subject)
+            if sn_a and sn_b and sn_a != sn_b:
+                continue
             pred_same = (_vcos(claim.predicate_vec, other.predicate_vec) >= SIM_ELEMENT
                          or (claim.predicate or "").strip() == (other.predicate or "").strip())
             if not pred_same:
