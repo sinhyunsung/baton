@@ -12,7 +12,7 @@ export default function LintPage() {
   const last = status?.last_run;
   const running = status?.job_running === "lint";
   const prog = status?.job_progress ?? {};
-  const flow = ["변경된 위키만 선별", "위키 클레임 즉석 추출", "룰 판정 먼저", "애매한 것만 LLM", "모순·빈틈 → 확인 요청함"];
+  const flow = ["변경 페이지 선별", "요소 벡터로 쌍 후보", "룰 판별(무료)", "LLM 동시 판정", "모순·빈틈 → 확인 요청함"];
 
   return (
     <section className="scr">
@@ -25,8 +25,8 @@ export default function LintPage() {
         </button>
       </div>
       <div className="lede mb24">
-        린트는 인제스트와 분리된 배치입니다. 변경된 위키만 선별 → 위키 클레임 즉석 추출(저장 안 함) →
-        관련 소스 클레임과 대조 → 룰로 먼저 걸러내고 애매한 쌍만 LLM이 판정합니다.
+        린트는 클레임의 모순·부족을 탐지해 교정하는 배치입니다. 위키 본문은 LLM에 넣지 않습니다 —
+        요소 벡터·룰로 후보를 좁힌 뒤 애매한 쌍만 LLM이 동시 판정하고, 답변이 확정되면 그때 연결된 위키가 교정됩니다.
       </div>
 
       {running && prog.pages_total != null && (

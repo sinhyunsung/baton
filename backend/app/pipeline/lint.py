@@ -33,6 +33,12 @@ KIND_LABEL = {"owner": "담당자 충돌", "polarity": "참/거짓 충돌", "val
 
 
 def run_lint(db: Session, progress: dict | None = None) -> LintRun:
+    """3단계 린트 — 위키 본문은 LLM에 넣지 않는다 (클레임이 검사 대상, 위키 교정은 답변 시점의 몫).
+
+    A. 수집(벡터·룰, LLM 없음): 변경 페이지들의 충돌 후보 쌍 + 빈틈 검사용 클레임 목록
+    B. 판정(전역 풀): 모든 판정·빈틈 LLM 호출을 PARALLEL_WORKERS(≤100)개 동시 실행
+    C. 기록: 이슈 생성, 페이지 도장(그 페이지의 호출이 전부 성공했을 때만)
+    """
     run = LintRun()
     db.add(run)
     db.commit()
@@ -43,42 +49,147 @@ def run_lint(db: Session, progress: dict | None = None) -> LintRun:
         )
     ).all()
 
-    import time as _time
     prog = progress if progress is not None else {}
     started = _time.time()
     prog.update(pages_total=len(pages), pages_checked=0, llm_calls=0,
-                contradictions=0, gaps=0, elapsed_sec=0, current=None)
+                contradictions=0, gaps=0, elapsed_sec=0, current="후보 수집 중(벡터)")
+
+    # ── A. 후보 수집 (LLM 없음) ─────────────────────────────────────────────
+    open_issues = db.scalars(select(LintIssue).where(LintIssue.status == "open")).all()
+    open_pairs = {frozenset(i.claim_ids) for i in open_issues if i.claim_ids and len(i.claim_ids) == 2}
+    open_gap_qs = {(i.page_id, i.question) for i in open_issues if i.issue_type == "gap"}
+
+    verdict_tasks: list[dict] = []   # {page_id, a_id, b_id, a_view, b_view, hint, a_owner, b_owner, a_subject}
+    gap_tasks: list[dict] = []       # {page_id, claims_text}
+    seen_pairs: set[frozenset] = set(open_pairs)
 
     for page in pages:
-        prog["current"] = page.title
-        ok = True
-        try:
-            _lint_page_claims(db, page, run)   # ① 소스 클레임끼리 충돌 (담당자/참거짓/값)
-            _lint_page_gaps(db, page, run)     # ② 빈틈 (담당자·기한 미지정 우선)
-        except Exception:  # noqa: BLE001
-            log.exception("린트 실패: page=%s", page.id)
-            db.rollback()
-            ok = False
-        if ok:  # 실패한 페이지는 미검사로 남겨 다음 실행에서 다시 본다
+        links = db.scalars(select(ClaimWikiLink).where(ClaimWikiLink.page_id == page.id)).all()
+        page_claims = [db.get(Claim, l.claim_id) for l in links]
+        page_claims = [c for c in page_claims if c]
+        verdicts = 0
+        for claim in page_claims:
+            if claim.claim_type != "rule" or claim.superseded or claim.subject_vec is None:
+                continue
+            if verdicts >= MAX_VERDICTS_PER_PAGE:
+                break
+            rows = db.execute(
+                select(Claim, Claim.subject_vec.cosine_distance(claim.subject_vec).label("d"))
+                .where(Claim.id != claim.id, Claim.claim_type == "rule",
+                       Claim.superseded.is_(False), Claim.source_id != claim.source_id,
+                       Claim.subject_vec.isnot(None))
+                .order_by("d").limit(15)
+            ).all()
+            for other, dist in rows:
+                if verdicts >= MAX_VERDICTS_PER_PAGE:
+                    break
+                subj_sim = 1 - dist
+                if subj_sim < 0.78:
+                    break
+                sn_a, sn_b = _numbers(claim.subject), _numbers(other.subject)
+                if sn_a and sn_b and sn_a != sn_b:
+                    continue
+                pred_same = (_vcos(claim.predicate_vec, other.predicate_vec) >= SIM_ELEMENT
+                             or (claim.predicate or "").strip() == (other.predicate or "").strip())
+                if not pred_same:
+                    continue
+                hint = _element_conflict_hint(claim, other)
+                if hint == "owner" and subj_sim < SIM_SUBJECT_OWNER:
+                    hint = None
+                pair = frozenset((claim.id, other.id))
+                if hint is None or pair in seen_pairs:
+                    continue
+                seen_pairs.add(pair)
+                verdicts += 1
+                verdict_tasks.append({
+                    "page_id": page.id, "a_id": claim.id, "b_id": other.id,
+                    "a_view": _claim_view(claim), "b_view": _claim_view(other),
+                    "hint": hint, "fallback_assignee": claim.owner or other.owner,
+                    "a_subject": claim.subject,
+                })
+        # 빈틈: 페이지의 클레임 목록만 LLM에 (본문 아님)
+        rules = [c for c in page_claims if c.claim_type == "rule" and not c.superseded]
+        if rules:
+            gap_tasks.append({
+                "page_id": page.id,
+                "claims_text": "\n".join(f"- {c.rendered_text}" for c in rules[:40]),
+            })
+
+    prog.update(current=f"LLM 판정 {len(verdict_tasks)}쌍 + 빈틈 {len(gap_tasks)}건 — 동시 {PARALLEL_WORKERS}")
+
+    # ── B. 전역 LLM 풀 (동시 PARALLEL_WORKERS) ──────────────────────────────
+    lock = threading.Lock()
+    page_failed: set[int] = set()
+    verdict_results: list[tuple[dict, dict]] = []
+    gap_results: list[tuple[dict, dict]] = []
+
+    def run_verdict(t: dict):
+        v = llm.extract_json(VERDICT_SYSTEM, json.dumps(
+            {"A": t["a_view"], "B": t["b_view"]}, ensure_ascii=False))
+        return ("v", t, v)
+
+    def run_gap(t: dict):
+        g = llm.extract_json(GAP_SYSTEM, t["claims_text"])
+        return ("g", t, g)
+
+    with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as pool:
+        futures = [pool.submit(run_verdict, t) for t in verdict_tasks]
+        futures += [pool.submit(run_gap, t) for t in gap_tasks]
+        for fut in as_completed(futures):
+            with lock:
+                run.llm_calls += 1
+                prog.update(llm_calls=run.llm_calls, elapsed_sec=round(_time.time() - started))
+            try:
+                kind, t, out = fut.result()
+            except Exception:  # noqa: BLE001 — 해당 페이지는 도장 안 찍고 다음 실행에서 재시도
+                log.exception("린트 LLM 호출 실패")
+                continue
+            with lock:
+                if kind == "v":
+                    verdict_results.append((t, out))
+                else:
+                    gap_results.append((t, out))
+
+    # 실패한 호출이 있던 페이지 추적 (성공 결과에 없는 태스크의 페이지)
+    ok_tasks = {id(t) for t, _ in verdict_results} | {id(t) for t, _ in gap_results}
+    for t in verdict_tasks + gap_tasks:
+        if id(t) not in ok_tasks:
+            page_failed.add(t["page_id"])
+
+    # ── C. 기록 ─────────────────────────────────────────────────────────────
+    for t, v in verdict_results:
+        if v.get("verdict") != "conflict":
+            continue
+        kind = v.get("kind") or t["hint"]
+        db.add(LintIssue(
+            issue_type="contradiction", page_id=t["page_id"],
+            claim_ids=[t["a_id"], t["b_id"]],
+            question=v.get("question") or f"'{t['a_subject']}' 정보가 출처마다 다릅니다. 확인해주세요.",
+            detail=f"[{KIND_LABEL.get(kind, kind)}] {v.get('reason', '')}",
+            options=[o for o in (v.get("options") or []) if o][:4],
+            assignee_name=v.get("assignee") or t["fallback_assignee"],
+        ))
+        run.contradictions += 1
+    for t, g in gap_results:
+        for gap in (g.get("gaps") or [])[:2]:
+            if (t["page_id"], gap.get("question")) in open_gap_qs:
+                continue
+            db.add(LintIssue(
+                issue_type="gap", page_id=t["page_id"], claim_ids=[],
+                question=gap.get("question", "확인이 필요합니다"),
+                detail=gap.get("detail"), options=[], assignee_name=gap.get("assignee"),
+            ))
+            run.gaps += 1
+    for page in pages:
+        if page.id not in page_failed:
             page.lint_checked_at = datetime.utcnow()
         run.pages_checked += 1
-        db.commit()
-        prog.update(pages_checked=run.pages_checked, llm_calls=run.llm_calls,
-                    contradictions=run.contradictions, gaps=run.gaps,
-                    elapsed_sec=round(_time.time() - started), current=None)
-
     run.finished_at = datetime.utcnow()
     db.commit()
-    prog.update(done=True, elapsed_sec=round(_time.time() - started))
+    prog.update(pages_checked=run.pages_checked, contradictions=run.contradictions,
+                gaps=run.gaps, done=True, current=None,
+                elapsed_sec=round(_time.time() - started))
     return run
-
-
-def _pair_has_open_issue(db: Session, a_id: int, b_id: int) -> bool:
-    issues = db.scalars(select(LintIssue).where(LintIssue.status == "open")).all()
-    return any(a_id in (i.claim_ids or []) and b_id in (i.claim_ids or []) for i in issues)
-
-
-_STOPWORDS = {"및", "등", "관련", "그리고", "또한", "최종", "추가", "반드시", "즉시"}
 
 
 def _norm_tokens(text) -> set[str]:
@@ -154,89 +265,11 @@ def _element_conflict_hint(a: Claim, b: Claim) -> str | None:
 MAX_VERDICTS_PER_PAGE = 12  # 페이지당 LLM 판정 상한 (표 문서 등에서 쌍 폭주 방지)
 
 
-def _lint_page_claims(db: Session, page: WikiPage, run):  # run: 카운터 객체(LintRun 또는 SimpleNamespace)
-    """페이지에 연결된 소스 클레임 각각에 대해, 유사한 다른 소스 클레임과 충돌하는지 검사."""
-    links = db.scalars(select(ClaimWikiLink).where(ClaimWikiLink.page_id == page.id)).all()
-    verdicts = 0
-    open_issues = db.scalars(select(LintIssue).where(LintIssue.status == "open")).all()
-    open_pairs = {frozenset(i.claim_ids) for i in open_issues if i.claim_ids and len(i.claim_ids) == 2}
-    for link in links:
-        if verdicts >= MAX_VERDICTS_PER_PAGE:
-            break
-        claim = db.get(Claim, link.claim_id)
-        if not claim or claim.claim_type != "rule" or claim.superseded:
-            continue
-        if claim.subject_vec is None:
-            continue
-        # 주어가 같은(≥0.70) 클레임을 넓게 모은 뒤, 속성까지 같아야 "같은 정보"로 본다
-        rows = db.execute(
-            select(Claim, Claim.subject_vec.cosine_distance(claim.subject_vec).label("d"))
-            .where(Claim.id != claim.id, Claim.claim_type == "rule",
-                   Claim.superseded.is_(False), Claim.source_id != claim.source_id,
-                   Claim.subject_vec.isnot(None))
-            .order_by("d").limit(15)
-        ).all()
-        for other, dist in rows:
-            subj_sim = 1 - dist
-            if subj_sim < 0.78:
-                break  # 거리순 정렬이므로 이후는 전부 문턱 미달
-            # 주어 숫자 가드: "1호점 vs 2호점", "1월 계약 vs 2월 계약"은 벡터가 가까워도 다른 대상
-            sn_a, sn_b = _numbers(claim.subject), _numbers(other.subject)
-            if sn_a and sn_b and sn_a != sn_b:
-                continue
-            pred_same = (_vcos(claim.predicate_vec, other.predicate_vec) >= SIM_ELEMENT
-                         or (claim.predicate or "").strip() == (other.predicate or "").strip())
-            if not pred_same:
-                continue  # 같은 대상의 다른 속성 얘기 (기한 vs 담당자) — 충돌 아님
-            hint = _element_conflict_hint(claim, other)
-            # 담당자 충돌은 "정말 같은 대상"일 때만 — 서식이 비슷한 서로 다른 건(계약 A사/B사)의
-            # 담당자가 다른 건 당연하므로, 주어 유사가 아주 높을 때만 인정한다
-            if hint == "owner" and subj_sim < SIM_SUBJECT_OWNER:
-                hint = None
-            if hint is None or frozenset((claim.id, other.id)) in open_pairs:
-                continue
-            verdict = llm.extract_json(VERDICT_SYSTEM, json.dumps({
-                "A": _claim_view(claim), "B": _claim_view(other),
-            }, ensure_ascii=False))
-            run.llm_calls += 1
-            verdicts += 1
-            if verdict.get("verdict") != "conflict":
-                continue
-            kind = verdict.get("kind") or hint
-            db.add(LintIssue(
-                issue_type="contradiction", page_id=page.id,
-                claim_ids=[claim.id, other.id],
-                question=verdict.get("question") or f"'{claim.subject}' 정보가 출처마다 다릅니다. 확인해주세요.",
-                detail=f"[{KIND_LABEL.get(kind, kind)}] {verdict.get('reason', '')}",
-                options=[o for o in verdict.get("options", []) if o][:4],
-                assignee_name=verdict.get("assignee") or claim.owner or other.owner,
-            ))
-            run.contradictions += 1
-            db.commit()
-
-
 def _claim_view(c: Claim) -> dict:
     return {"id": c.id, "text": c.rendered_text, "subject": c.subject, "predicate": c.predicate,
             "object": c.object, "polarity": c.polarity, "owner": c.owner, "project": c.project,
             "scope": c.scope, "time_scope": c.time_scope,
             "confidence": c.confidence, "human_confirmed": c.human_confirmed}
-
-
-def _lint_page_gaps(db: Session, page: WikiPage, run):
-    gaps = llm.extract_json(GAP_SYSTEM, f"# {page.title}\n\n{page.body[:8000]}")
-    run.llm_calls += 1
-    for g in gaps.get("gaps", [])[:2]:
-        if db.scalar(select(LintIssue).where(
-            LintIssue.page_id == page.id, LintIssue.status == "open",
-            LintIssue.issue_type == "gap", LintIssue.question == g.get("question"))):
-            continue
-        db.add(LintIssue(
-            issue_type="gap", page_id=page.id, claim_ids=[],
-            question=g.get("question", "확인이 필요합니다"),
-            detail=g.get("detail"), options=[], assignee_name=g.get("assignee"),
-        ))
-        run.gaps += 1
-    db.commit()
 
 
 def answer_issue(db: Session, issue_id: int, answer: str) -> LintIssue:
