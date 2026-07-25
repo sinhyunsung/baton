@@ -164,10 +164,13 @@ def process_source(db: Session, src: RawSource) -> int:
         # project는 위키 트리의 프로젝트 선정 로직(n-gram 빈도 canonical)과 같은 기준으로 정규화해 저장한다
         if any(c.get("project") for c in claims_data):
             from .projects import build_counts, canonical
+            from .taxonomy import resolve_project
+            from ..models import ProjectTaxonomy
             counts = build_counts(db)
+            tax = {t.raw_tag: t.canonical for t in db.scalars(select(ProjectTaxonomy))}
             for c in claims_data:
                 if c.get("project"):
-                    c["project"] = canonical(str(c["project"]), counts)
+                    c["project"] = resolve_project(canonical(str(c["project"]), counts), tax)
         claims: list[Claim] = []
         if claims_data:
             rendered = [_render(c) for c in claims_data]
@@ -251,6 +254,8 @@ def run_ingest(db: Session, limit: int | None = None,
     from .wiki import dedupe_pages, refresh_all_links
 
     stats["project_merged"] = normalize_all(db)
+    from .taxonomy import update_taxonomy
+    stats["taxonomy"] = update_taxonomy(db)
     stats["pages_merged"] = dedupe_pages(db)
     stats["links_refreshed"] = refresh_all_links(db)
     stats["duration_sec"] = round(time.time() - started)

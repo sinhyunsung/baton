@@ -104,7 +104,7 @@ class LintIssue(Base):
     __tablename__ = "lint_issues"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    issue_type: Mapped[str] = mapped_column(String(16))  # contradiction | gap
+    issue_type: Mapped[str] = mapped_column(String(16))  # contradiction | gap | taxonomy
     page_id: Mapped[int | None] = mapped_column(ForeignKey("wiki_pages.id"), nullable=True)
     claim_ids: Mapped[list] = mapped_column(JSON, default=list)
     question: Mapped[str] = mapped_column(Text)
@@ -115,6 +115,20 @@ class LintIssue(Base):
     answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    meta: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # taxonomy 등 기계 처리용 부가정보
+
+
+class ProjectTaxonomy(Base):
+    """프로젝트 태그 사전: 원석 태그 → 대표 이름. 증거 기반 병합의 영속 기억.
+    human_confirmed=True 항목은 자동 로직이 절대 바꾸지 않는다 (사람 판정 고정)."""
+    __tablename__ = "project_taxonomy"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    raw_tag: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    canonical: Mapped[str] = mapped_column(String(120), index=True)
+    evidence: Mapped[str] = mapped_column(String(20), default="cooccur")  # cooccur|owners|human|self
+    human_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class LintRun(Base):

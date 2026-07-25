@@ -48,8 +48,8 @@ export default function InboxPage() {
             {issues.map((it, i) => (
               <div key={it.id} className={`selrow ${i === sel ? "on" : ""}`} onClick={() => setSel(i)}>
                 <div className="fx ac gap6 mb6">
-                  <span className={`bdg ${it.type === "contradiction" ? "bdg-crit" : "bdg-attn"}`}>
-                    {it.type === "contradiction" ? "모순" : "빈틈"}</span>
+                  <span className={`bdg ${it.type === "contradiction" ? "bdg-crit" : it.type === "taxonomy" ? "bdg-ink" : "bdg-attn"}`}>
+                    {it.type === "contradiction" ? "모순" : it.type === "taxonomy" ? "분류" : "빈틈"}</span>
                   <span className="bdg bdg-soft">{it.assignee ?? "미지정"}</span>
                 </div>
                 <div className="fs14 w7">{it.question.length > 44 ? it.question.slice(0, 44) + "…" : it.question}</div>
@@ -61,8 +61,8 @@ export default function InboxPage() {
             <div className="card-lg pad32">
               <div className="fx jb ac mb10">
                 <div className="fx ac gap6">
-                  <span className={`bdg ${cur.type === "contradiction" ? "bdg-crit" : "bdg-attn"}`}>
-                    {cur.type === "contradiction" ? "모순" : "빈틈"}</span>
+                  <span className={`bdg ${cur.type === "contradiction" ? "bdg-crit" : cur.type === "taxonomy" ? "bdg-ink" : "bdg-attn"}`}>
+                    {cur.type === "contradiction" ? "모순" : cur.type === "taxonomy" ? "분류" : "빈틈"}</span>
                   {cur.page && <span className="bdg bdg-soft">위키 · {cur.page.title}</span>}
                 </div>
                 <span className="bdg bdg-soft">담당 {cur.assignee ?? "미지정"}</span>

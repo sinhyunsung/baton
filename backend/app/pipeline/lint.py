@@ -232,6 +232,15 @@ def answer_issue(db: Session, issue_id: int, answer: str) -> LintIssue:
     if not issue or issue.status != "open":
         raise ValueError("열린 확인 요청이 아님")
 
+    if issue.issue_type == "taxonomy":
+        from .taxonomy import answer_taxonomy
+        answer_taxonomy(db, issue, answer)
+        issue.status = "answered"
+        issue.answer = answer
+        issue.resolved_at = datetime.utcnow()
+        db.commit()
+        return issue
+
     ans = answer.strip()
     confirmed_claim = None
     for cid in issue.claim_ids or []:

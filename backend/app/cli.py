@@ -83,11 +83,29 @@ def resweep(source_id: int = typer.Option(None, help="특정 문서만"),
             total += n
             typer.echo(f"  {src.path}: +{n}")
         from .pipeline.projects import normalize_all
+        from .pipeline.taxonomy import update_taxonomy
         from .pipeline.wiki import dedupe_pages, refresh_all_links
         merged = normalize_all(db)
+        update_taxonomy(db)
         merged += dedupe_pages(db)
         refreshed = refresh_all_links(db)
         typer.echo(f"재스윕 완료: +{total}개 클레임 (프로젝트 재정규화 {merged}건, 링크 재생성 {refreshed}건)")
+    finally:
+        db.close()
+
+
+@cli.command()
+def taxonomy():
+    """증거 기반 프로젝트 택소노미 갱신 (공출현 흡수·범용 재배정·증거 병합·역질문)."""
+    init_db()
+    db = SessionLocal()
+    try:
+        from .pipeline.taxonomy import update_taxonomy
+        from .pipeline.wiki import dedupe_pages, refresh_all_links
+        stats = update_taxonomy(db)
+        stats["pages_merged"] = dedupe_pages(db)
+        stats["links_refreshed"] = refresh_all_links(db)
+        typer.echo(f"택소노미: {stats}")
     finally:
         db.close()
 
