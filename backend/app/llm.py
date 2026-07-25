@@ -47,6 +47,9 @@ def _ds_body(system: str, user: str, max_tokens: int, stream: bool = False) -> d
     return {
         "model": DEEPSEEK_MODEL,
         "temperature": DEEPSEEK_TEMPERATURE,
+        # DeepSeek V4가 기본으로 추론(reasoning_content)을 켜면서 max_tokens를 추론이 먼저 소모
+        # → content가 비거나 잘리는 사태 ("빈 응답" 사태의 진범). 명시적으로 끈다.
+        "thinking": {"type": "disabled"},
         "max_tokens": min(max_tokens, DEEPSEEK_MAX_TOKENS),
         "messages": [
             {"role": "system", "content": system},
