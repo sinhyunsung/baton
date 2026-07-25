@@ -286,6 +286,19 @@ def run_ingest(db: Session, limit: int | None = None,
             prog["skipped"] = stats["skipped"]
             continue
         new_ids.append(src.id)
+    # 재개(resume): 이전 배치가 중단되며 남긴 미완료 문서를 이어받는다
+    # (수집됨 = 대기 중 끊김, preprocessed/claimed = 처리 중 끊김 — 멱등 재처리로 안전)
+    stuck = db.scalars(
+        select(RawSource.id).where(
+            RawSource.status.in_(["collected", "preprocessed", "claimed"]),
+            ~RawSource.id.in_(new_ids or [0]),
+        )
+    ).all()
+    if stuck:
+        log.info("중단 배치 재개: %d건 이어서 처리", len(stuck))
+        new_ids.extend(stuck)
+        stats["resumed"] = len(stuck)
+
     stats["new"] = len(new_ids)
     prog["new"] = stats["new"]
 
