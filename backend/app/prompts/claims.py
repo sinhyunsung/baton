@@ -149,3 +149,48 @@ CLAIMS_SWEEP_USER = """\
 ## 문서 본문
 {body}
 """
+
+
+CHUNK_CLAIMS_SYSTEM = PREPROCESS_AND_CLAIMS_SYSTEM.replace(
+    """주어진 문서 하나를 처리해 (1) 전처리 조각과 (2) 클레임을 추출한다.""",
+    """문서의 **한 조각(시맨틱 청크)**을 처리해 클레임을 추출한다.
+조각은 의미 단위로 잘려 있다. 문서 전체 맥락은 제목·메타데이터·이미 뽑힌 클레임 목록으로 판단한다.
+- 같은 대상은 이미 뽑힌 클레임과 **같은 표기**의 subject를 쓴다 (문서 내 표기 통일).
+- 이미 뽑힌 클레임과 같은 사실은 다시 만들지 않는다.""",
+).replace(
+    """## 전처리 규칙
+- 문서를 조각(chunk)으로 분해한다: 본문 문단은 type="text", 마크다운 표는 type="table", 이미지는 type="image".
+- 각 조각의 text에는 오타·문법을 교정한 정돈된 **요약 텍스트**를 넣는다(원문은 시스템이 따로 보관하므로 원문을 그대로 베껴 쓰지 말 것. 조각당 1~3문장).
+- 표(type="table")의 text에는 "어떤 표인지" 설명 1~2문장만 넣는다(표 원문 복사 금지).
+
+""",
+    "",
+).replace(
+    """## 출력(JSON만)
+{
+  "chunks": [{"type": "text|table|image", "text": "..."}],
+  "claims": [{"subject": "...", "predicate": "...", "object": "...", "polarity": "positive",
+              "scope": null, "time_scope": null, "claim_type": "rule",
+              "owner": "박세린" | null, "project": "정산 시스템" | null, "confidence": 0.9}]
+}""",
+    """## 출력(JSON만)
+{
+  "claims": [{"subject": "...", "predicate": "...", "object": "...", "polarity": "positive",
+              "scope": null, "time_scope": null, "claim_type": "rule",
+              "owner": "박세린" | null, "project": "정산 시스템" | null, "confidence": 0.9}]
+}""",
+)
+
+CHUNK_CLAIMS_USER = """\
+## 문서 메타데이터
+- 문서 제목: {title}
+- 소스 타입: {source_type}
+- 경로: {path}
+- 메타: {meta}
+
+## 이 문서에서 이미 뽑힌 클레임 (표기 통일·중복 방지용)
+{existing}
+
+## 문서 조각 ({idx}/{total})
+{body}
+"""

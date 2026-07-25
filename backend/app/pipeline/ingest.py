@@ -17,8 +17,8 @@ from ..config import CLAIM_SWEEP, DATA_SOURCES_DIR, PARALLEL_WORKERS
 from ..db import SessionLocal
 from ..models import Claim, Preprocessed, RawSource
 from ..prompts.claims import (
+    CHUNK_CLAIMS_SYSTEM, CHUNK_CLAIMS_USER,
     CLAIMS_SWEEP_SYSTEM, CLAIMS_SWEEP_USER,
-    PREPROCESS_AND_CLAIMS_SYSTEM, PREPROCESS_AND_CLAIMS_USER,
 )
 from .wiki import apply_wiki_updates
 
@@ -125,6 +125,18 @@ def extract_body(content: dict) -> tuple[str, dict]:
 def process_source(db: Session, src: RawSource) -> int:
     """전처리+클레임 추출+임베딩+위키 갱신안. 반환: 저장된 클레임 수."""
     try:
+        # 재처리 멱등성: 이전 시도의 산출물(클레임·링크·조각)을 지우고 처음부터
+        # — 클레임 저장 후 실패한 문서를 재시도할 때 중복 적재를 막는다
+        old = db.scalars(select(Claim).where(Claim.source_id == src.id)).all()
+        if old:
+            from ..models import ClaimWikiLink
+            ids = [c.id for c in old]
+            db.query(ClaimWikiLink).filter(ClaimWikiLink.claim_id.in_(ids)).delete(synchronize_session=False)
+            db.query(Claim).filter(Claim.id.in_(ids)).delete(synchronize_session=False)
+            db.query(Preprocessed).filter(Preprocessed.raw_source_id == src.id).delete(synchronize_session=False)
+            db.commit()
+            log.info("재처리 정리: %s 클레임 %d개 삭제 후 재추출", src.path, len(ids))
+
         body, meta = extract_body(src.content)
         if len(body.strip()) < 15:
             src.failed_stage = "collected"
@@ -133,23 +145,37 @@ def process_source(db: Session, src: RawSource) -> int:
             db.commit()
             return 0
 
-        result = llm.extract_json(
-            PREPROCESS_AND_CLAIMS_SYSTEM,
-            PREPROCESS_AND_CLAIMS_USER.format(
-                source_type=src.source_type, path=src.path,
-                meta=json.dumps(meta, ensure_ascii=False)[:1500], body=body[:12000],
-            ),
-        )
-        db.add(Preprocessed(raw_source_id=src.id, chunks=result.get("chunks", [])))
+        # ① 시맨틱 청킹 — 의미 급변(주제 환기) 지점이 경계. 청크가 곧 전처리 조각이 된다
+        from .chunking import semantic_chunks
+        chunks = semantic_chunks(body[:24000])
+        db.add(Preprocessed(raw_source_id=src.id,
+                            chunks=[{"type": "text", "text": c} for c in chunks]))
         src.status = "preprocessed"
         db.commit()
 
-        claims_data = [c for c in result.get("claims", []) if c.get("subject") and c.get("object")]
+        # ② 청크별 추출 — 메타데이터는 그대로, "이미 뽑힌 클레임"을 이어 전달해 표기 통일
+        claims_data: list[dict] = []
+        seen_keys: set[tuple[str, str]] = set()
+        for idx, chunk in enumerate(chunks, 1):
+            result = llm.extract_json(
+                CHUNK_CLAIMS_SYSTEM,
+                CHUNK_CLAIMS_USER.format(
+                    title=src.title or src.path, source_type=src.source_type, path=src.path,
+                    meta=json.dumps(meta, ensure_ascii=False)[:1500],
+                    existing="\n".join(f"- {_render(c)}" for c in claims_data[-40:]) or "(아직 없음)",
+                    idx=idx, total=len(chunks), body=chunk,
+                ),
+            )
+            for c in result.get("claims", []):
+                key = (str(c.get("subject", "")).strip(), str(c.get("object", "")).strip())
+                if c.get("subject") and c.get("object") and key not in seen_keys:
+                    claims_data.append(c)
+                    seen_keys.add(key)
 
         # 누락 스윕(2차 패스): 본문을 다시 훑어 아직 안 뽑힌 사실만 추가 — 재현율 우선
         if CLAIM_SWEEP and claims_data:
             try:
-                seen = {(c["subject"].strip(), str(c["object"]).strip()) for c in claims_data}
+                seen = seen_keys
                 sweep = llm.extract_json(CLAIMS_SWEEP_SYSTEM, CLAIMS_SWEEP_USER.format(
                     existing="\n".join(f"- {_render(c)}" for c in claims_data), body=body[:12000]))
                 added = 0

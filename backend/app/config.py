@@ -24,6 +24,11 @@ EMBED_DIM = 1024
 # 병렬 처리: 인제스트(문서 단위)·린트(페이지 단위) 동시 실행 수
 PARALLEL_WORKERS = int(os.environ.get("BATON_PARALLEL", "4"))
 
+# 시맨틱 청킹: 의미 급변 지점을 경계로 본문을 조각내 추출 정밀도를 높인다
+SEM_CHUNK_SIM = float(os.environ.get("BATON_SEM_CHUNK_SIM", "0.55"))   # 이 미만이면 주제 전환
+SEM_CHUNK_MIN = int(os.environ.get("BATON_SEM_CHUNK_MIN", "800"))      # 청크 최소 크기(자)
+SEM_CHUNK_MAX = int(os.environ.get("BATON_SEM_CHUNK_MAX", "2500"))     # 청크 최대 크기(자)
+
 # 클레임 누락 스윕(2차 패스): 본문을 한 번 더 훑어 안 뽑힌 사실을 추가 추출
 CLAIM_SWEEP = os.environ.get("BATON_CLAIM_SWEEP", "1") == "1"
 
