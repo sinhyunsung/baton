@@ -302,7 +302,24 @@ def run_ingest(db: Session, limit: int | None = None,
     stats["new"] = len(new_ids)
     prog["new"] = stats["new"]
 
-    # ② LLM 처리(추출·스윕·위키)는 문서 단위 병렬 — 병목이 LLM 대기라 효과가 크다
+    _process_many(db, new_ids, stats, prog, started)
+
+    # 배치가 끝나면 쌓인 집계로 기존 트리의 프로젝트명도 재정규화 (파편 폴더 병합)
+    from .projects import normalize_all
+    from .taxonomy import update_taxonomy
+    from .wiki import dedupe_pages, refresh_all_links
+
+    stats["project_merged"] = normalize_all(db)
+    stats["taxonomy"] = update_taxonomy(db)
+    stats["pages_merged"] = dedupe_pages(db)
+    stats["links_refreshed"] = refresh_all_links(db)
+    stats["duration_sec"] = round(time.time() - started)
+    prog.update(elapsed_sec=stats["duration_sec"], done=True)
+    return stats
+
+
+def _process_many(db: Session, ids: list[int], stats: dict, prog: dict, started: float):
+    """문서 id 목록을 병렬 워커로 처리 (run_ingest·recover 공용)."""
     lock = threading.Lock()
     active: list[str] = []
 
@@ -323,9 +340,9 @@ def run_ingest(db: Session, limit: int | None = None,
         finally:
             wdb.close()
 
-    if new_ids:
+    if ids:
         with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as pool:
-            futures = [pool.submit(worker, sid) for sid in new_ids]
+            futures = [pool.submit(worker, sid) for sid in ids]
             for fut in as_completed(futures):
                 try:
                     n, failed = fut.result()
@@ -421,6 +438,41 @@ def resweep_source(db: Session, src: RawSource) -> int:
     _reconcile_links(db, claims, list(pages.values()))
     log.info("재스윕: %s → +%d개", src.path, len(claims))
     return len(claims)
+
+
+def recover(db: Session, progress: dict | None = None) -> dict:
+    """복구 배치: 실패 문서 + 중단된 문서(수집됨/중간 단계)를 병렬로 재처리.
+    반드시 잡 잠금(_run_bg) 아래에서 실행할 것 — 재시도 동시 실행이 FK 레이스를 만든다."""
+    prog = progress if progress is not None else {}
+    started = time.time()
+    failed = db.scalars(select(RawSource).where(RawSource.status == "failed")).all()
+    for src in failed:  # 상태 초기화
+        src.status = "collected"
+        src.error = None
+        src.failed_stage = None
+    db.commit()
+    stuck = db.scalars(select(RawSource.id).where(
+        RawSource.status.in_(["collected", "preprocessed", "claimed"]))).all()
+    ids = list(stuck)
+    stats = {"scanned": 0, "new": len(ids), "processed": 0, "skipped": 0,
+             "claims": 0, "failed": 0, "dir": "(복구)"}
+    prog.update(scanned=len(ids), target=len(ids), new=len(ids), processed=0,
+                claims=0, failed=0, skipped=0, current=None, elapsed_sec=0)
+    if not ids:
+        prog.update(done=True)
+        return stats
+    _process_many(db, ids, stats, prog, started)
+    from .projects import normalize_all
+    from .taxonomy import update_taxonomy
+    from .wiki import dedupe_pages, refresh_all_links
+    stats["project_merged"] = normalize_all(db)
+    stats["taxonomy"] = update_taxonomy(db)
+    stats["pages_merged"] = dedupe_pages(db)
+    stats["links_refreshed"] = refresh_all_links(db)
+    stats["duration_sec"] = round(time.time() - started)
+    prog.update(elapsed_sec=stats["duration_sec"], done=True)
+    log.info("복구 완료: %s", stats)
+    return stats
 
 
 def retry_failed(db: Session) -> int:

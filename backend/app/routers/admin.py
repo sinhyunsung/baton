@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from ..db import SessionLocal, get_session
 from ..models import Claim, ClaimWikiLink, LintIssue, LintRun, RawSource, WikiPage
 from ..pipeline.ingest import (
-    get_source_dir, get_source_dir_display, resolve_dir, retry_failed,
+    get_source_dir, get_source_dir_display, recover, resolve_dir,
     run_ingest, scan_files, set_source_dir,
 )
 from ..pipeline.lint import answer_issue, run_lint
@@ -160,8 +160,10 @@ def ingest_scan(body: IngestIn):
 
 
 @router.post("/ingest/retry")
-def ingest_retry(db: Session = Depends(get_session)):
-    return {"retried_ok": retry_failed(db)}
+def ingest_retry():
+    """실패·중단 문서 복구 — 잡 잠금 아래 백그라운드로 (동시 재시도 레이스 방지)."""
+    _run_bg("ingest", lambda db, prog: recover(db, progress=prog))
+    return {"started": True}
 
 
 @router.get("/ingest/docs")
