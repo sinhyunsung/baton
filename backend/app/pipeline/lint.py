@@ -192,6 +192,9 @@ def run_lint(db: Session, progress: dict | None = None) -> LintRun:
     return run
 
 
+_STOPWORDS = {"및", "등", "관련", "그리고", "또한", "최종", "추가", "반드시", "즉시"}
+
+
 def _norm_tokens(text) -> set[str]:
     toks = re.split(r"[\s,·/()\[\]\"']+", str(text or "").strip())
     return {t for t in toks if t and t not in _STOPWORDS}
