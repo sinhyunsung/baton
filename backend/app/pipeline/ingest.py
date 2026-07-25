@@ -211,7 +211,7 @@ def process_source(db: Session, src: RawSource) -> int:
                     object=str(c["object"]), polarity=c.get("polarity", "positive"),
                     scope=c.get("scope"), time_scope=c.get("time_scope"),
                     claim_type=c.get("claim_type", "rule"),
-                    department=(c.get("department") or None),
+                    department=_norm_department(c.get("department")),
                     owner=(c.get("owner") or None), project=(c.get("project") or None),
                     confidence=float(c.get("confidence", 0.5)),
                     source_id=src.id, rendered_text=text, embedding=vec,
@@ -250,13 +250,22 @@ def _element_vecs(claims_data: list[dict]) -> tuple[list, list, list]:
             [vmap.get(t, empty) for t in objs])
 
 
+def _norm_department(name) -> str | None:
+    """부서명 표기 통일: '~팀'/'~부서' 접미사 제거 ("개발팀"→"개발"). 프롬프트 지시의 결정적 보증."""
+    d = str(name or "").strip()
+    for suf in ("부서", "팀"):
+        if d.endswith(suf) and len(d) > len(suf) + 1:
+            d = d[: -len(suf)].strip()
+    return d or None
+
+
 def _render(c: dict) -> str:
     parts = [f"{c['subject']}의 {c.get('predicate', '')}은(는) {c['object']}"]
     if c.get("polarity") == "negative":
         parts.append("아니다")
     extras = [x for x in (c.get("scope"), c.get("time_scope")) if x]
     if c.get("department"):
-        extras.append(f"부서: {c['department']}")
+        extras.append(f"부서: {_norm_department(c['department'])}")
     if c.get("project"):
         extras.append(f"프로젝트: {c['project']}")
     if c.get("owner"):
@@ -420,7 +429,7 @@ def resweep_source(db: Session, src: RawSource) -> int:
             object=str(c["object"]), polarity=c.get("polarity", "positive"),
             scope=c.get("scope"), time_scope=c.get("time_scope"),
             claim_type=c.get("claim_type", "rule"),
-            department=(c.get("department") or None),
+            department=_norm_department(c.get("department")),
             owner=(c.get("owner") or None), project=(c.get("project") or None),
             confidence=float(c.get("confidence", 0.5)),
             source_id=src.id, rendered_text=text, embedding=vec,
