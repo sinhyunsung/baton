@@ -16,7 +16,7 @@ log = logging.getLogger("baton.wiki")
 
 WIKI_LINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
 _SECTION_MARK = "\n## 관련 페이지"
-_SKIP_SEG = {"공통", "담당자미정"}
+_SKIP_SEG = {"미지정", "공통", "담당자미정"}  # 자리표시 세그먼트 (관련 페이지·정규화 제외)
 
 
 def _clean_title(title: str, folder_path: str) -> str:
@@ -33,6 +33,15 @@ def _clean_title(title: str, folder_path: str) -> str:
                     t = t[len(pre):].strip()
                     changed = True
     return t or title
+
+
+def _enforce_tree(folder_path: str) -> str:
+    """트리 불변식: folder_path는 정확히 3계층 "부서/프로젝트/담당자".
+    모자라면 "미지정"으로 채우고, 넘치면 앞 3계층만 취한다. 구 자리표시명도 통일한다."""
+    parts = [seg.strip() for seg in (folder_path or "").split("/") if seg.strip()]
+    parts = [("미지정" if seg in ("공통", "담당자미정") else seg) for seg in parts]
+    parts = (parts + ["미지정"] * 3)[:3]
+    return "/".join(parts)
 
 
 def _strip_related_section(body: str) -> str:
@@ -110,7 +119,7 @@ def apply_wiki_updates(db: Session, src: RawSource, claims: list[Claim]):
     candidates = find_candidate_pages(db, claims)
     claims_json = json.dumps(
         [{"id": c.id, "text": c.rendered_text, "claim_type": c.claim_type,
-          "owner": c.owner, "project": c.project,
+          "department": c.department, "owner": c.owner, "project": c.project,
           "confidence": c.confidence} for c in claims], ensure_ascii=False, indent=1)
     candidates_json = json.dumps(
         [{"id": p.id, "title": p.title, "folder_path": p.folder_path, "body": p.body[:3000]}
@@ -231,6 +240,8 @@ def _reconcile_links(db: Session, claims: list[Claim], touched: list[WikiPage]):
             score += 2
         if c.project and len(pp) >= 2 and pp[1] == c.project:
             score += 1
+        if c.department and len(pp) >= 1 and pp[0] == c.department:
+            score += 1
         return score
 
     page_ids = [p.id for p in pages]
@@ -274,6 +285,7 @@ def apply_page_update(
     """페이지 생성/갱신을 즉시 적용하고 버전 스냅샷과 클레임 링크를 남긴다."""
     from .projects import normalize_folder
 
+    folder_path = _enforce_tree(folder_path)
     folder_path = normalize_folder(db, folder_path)
     title = _clean_title(title, folder_path)
     if page_id:

@@ -56,7 +56,7 @@ def _save_entry(db: Session, raw: str, canonical: str, evidence: str, human: boo
 
 
 def _dept_names(db: Session) -> set[str]:
-    out = set()
+    out = {"미지정"}
     for (fp,) in db.execute(select(WikiPage.folder_path)):
         parts = [p for p in (fp or "").split("/") if p]
         if parts:

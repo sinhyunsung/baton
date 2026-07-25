@@ -21,7 +21,7 @@ from ..models import Claim, WikiPage  # noqa: F401
 
 log = logging.getLogger("baton.projects")
 
-_SKIP_SEGMENTS = {"공통", "담당자미정"}  # 프로젝트 계층이 아닌 예약 세그먼트
+_SKIP_SEGMENTS = {"미지정", "공통", "담당자미정"}  # 프로젝트 계층이 아닌 예약 세그먼트
 MAX_NGRAM = 3
 MIN_COUNT_TO_MERGE = 2  # 대표 이름이 실제로 반복 등장할 때만 치환
 
@@ -89,7 +89,12 @@ def normalize_all(db: Session) -> int:
     (인제스트 배치 후 호출 — 데이터가 쌓이면서 초기에 파편화됐던 이름들이 대표 이름으로 합쳐진다)"""
     counts = build_counts(db)
     moved = 0
+    from .wiki import _enforce_tree
     for page in db.scalars(select(WikiPage)).all():
+        enforced = _enforce_tree(page.folder_path)
+        if enforced != page.folder_path:
+            page.folder_path = enforced
+            moved += 1
         parts = [p for p in (page.folder_path or "").split("/") if p]
         if len(parts) < 2 or parts[1] in _SKIP_SEGMENTS:
             continue

@@ -211,6 +211,7 @@ def process_source(db: Session, src: RawSource) -> int:
                     object=str(c["object"]), polarity=c.get("polarity", "positive"),
                     scope=c.get("scope"), time_scope=c.get("time_scope"),
                     claim_type=c.get("claim_type", "rule"),
+                    department=(c.get("department") or None),
                     owner=(c.get("owner") or None), project=(c.get("project") or None),
                     confidence=float(c.get("confidence", 0.5)),
                     source_id=src.id, rendered_text=text, embedding=vec,
@@ -254,6 +255,8 @@ def _render(c: dict) -> str:
     if c.get("polarity") == "negative":
         parts.append("아니다")
     extras = [x for x in (c.get("scope"), c.get("time_scope")) if x]
+    if c.get("department"):
+        extras.append(f"부서: {c['department']}")
     if c.get("project"):
         extras.append(f"프로젝트: {c['project']}")
     if c.get("owner"):
@@ -417,6 +420,7 @@ def resweep_source(db: Session, src: RawSource) -> int:
             object=str(c["object"]), polarity=c.get("polarity", "positive"),
             scope=c.get("scope"), time_scope=c.get("time_scope"),
             claim_type=c.get("claim_type", "rule"),
+            department=(c.get("department") or None),
             owner=(c.get("owner") or None), project=(c.get("project") or None),
             confidence=float(c.get("confidence", 0.5)),
             source_id=src.id, rendered_text=text, embedding=vec,

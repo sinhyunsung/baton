@@ -64,6 +64,7 @@ export default function ClaimCard({
       <div className="fx gap6 mt10" style={{ flexWrap: "wrap" }}>
         {claim.scope && <span className="bdg bdg-soft">범위 · {claim.scope}</span>}
         {claim.time_scope && <span className="bdg bdg-soft">시점 · {claim.time_scope}</span>}
+        {claim.department && <span className="bdg bdg-soft">부서 {claim.department}</span>}
         {claim.owner && <span className="bdg bdg-soft">담당 {claim.owner}</span>}
         {claim.confidence != null && <span className="bdg bdg-soft">확신도 {Math.round(claim.confidence * 100)}%</span>}
       </div>

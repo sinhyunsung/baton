@@ -284,7 +284,7 @@ def _claim_full(db: Session, c: Claim) -> dict:
     return {
         "id": c.id, "text": c.rendered_text,
         "subject": c.subject, "predicate": c.predicate, "object": c.object,
-        "polarity": c.polarity, "owner": c.owner, "project": c.project,
+        "polarity": c.polarity, "department": c.department, "owner": c.owner, "project": c.project,
         "scope": c.scope, "time_scope": c.time_scope,
         "confidence": c.confidence, "human_confirmed": c.human_confirmed,
         "superseded": c.superseded, "claim_type": c.claim_type,

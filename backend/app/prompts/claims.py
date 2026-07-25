@@ -64,6 +64,11 @@ PREPROCESS_AND_CLAIMS_SYSTEM = """\
 - "event": **일어난 일의 기록**. 바뀌는 게 아니라 쌓인다(장애 발생, 결정 경위, 배포 이력, 표의 행 데이터). → 모순 검사 제외
 - 판별법: "이 값의 '최신값'이라는 개념이 성립하는가?" 성립하면 rule.
 
+### department (부서) — 트리 배치의 1층
+- 이 사실이 속한 **부서·팀 이름** (개발, 인사, 재무, 영업, 경영지원, 인프라팀 등).
+- 문서 경로의 상위 폴더명, 조직 언급("인사팀 공지", "재무팀 검토"), 담당자의 소속에서 추론한다.
+- 부서를 특정할 근거가 없으면 null. **지어내지 않는다.**
+
 ### owner (담당자) — 가장 중요한 필드 ①
 - 이 사실의 책임자·수행자. 다음 우선순위로 찾는다:
   ① 명시적 담당 지정("담당자는 X") ② 업무를 할당·배정받은 사람 ③ 실제 수행·결정한 사람 ④ 작성자·발언자(그 내용의 책임자로 볼 수 있을 때)
@@ -94,7 +99,7 @@ PREPROCESS_AND_CLAIMS_SYSTEM = """\
 [
  {"subject": "정산 대사 배치 장애 대응", "predicate": "담당자", "object": "박세린", "polarity": "positive",
   "scope": null, "time_scope": "2026-06-15부터", "claim_type": "rule",
-  "owner": "박세린", "project": "정산 시스템", "confidence": 0.85},
+  "department": "개발", "owner": "박세린", "project": "정산 시스템", "confidence": 0.85},
  {"subject": "정산 대사 배치", "predicate": "실행 시각", "object": "새벽 2시", "polarity": "positive",
   "scope": null, "time_scope": null, "claim_type": "rule",
   "owner": "박세린", "project": "정산 시스템", "confidence": 0.85},
@@ -108,7 +113,8 @@ PREPROCESS_AND_CLAIMS_SYSTEM = """\
   "chunks": [{"type": "text|table|image", "text": "..."}],
   "claims": [{"subject": "...", "predicate": "...", "object": "...", "polarity": "positive",
               "scope": null, "time_scope": null, "claim_type": "rule",
-              "owner": "박세린" | null, "project": "정산 시스템" | null, "confidence": 0.9}]
+              "department": "개발" | null, "owner": "박세린" | null,
+              "project": "정산 시스템" | null, "confidence": 0.9}]
 }
 """
 
@@ -132,14 +138,14 @@ CLAIMS_SWEEP_SYSTEM = """\
 - 승인·검토·서명 표의 행(승인자·검토자 각각), 참석자 명단, 변경 이력 행도 누락 단골이다 — 반드시 대조한다.
 - 이미 있는 클레임과 같은 사실은 다시 만들지 않는다.
 - 필드 규칙은 본 추출과 동일: subject는 자립적 명사구, object는 값만(조건→scope, 시점→time_scope),
-  polarity로 부정 표현, claim_type rule/event 구분, owner·project 최대 추출(근거 없으면 null), confidence 눈금.
+  polarity로 부정 표현, claim_type rule/event 구분, department·owner·project 최대 추출(근거 없으면 null), confidence 눈금.
 - 누락이 없으면 빈 배열을 출력한다.
 - 한 번에 최대 30개까지만 출력한다 (더 있으면 중요한 것부터 — 반복 실행으로 마저 잡는다).
 
 출력(JSON만):
 {"claims": [{"subject": "...", "predicate": "...", "object": "...", "polarity": "positive",
              "scope": null, "time_scope": null, "claim_type": "rule",
-             "owner": null, "project": null, "confidence": 0.9}]}
+             "department": null, "owner": null, "project": null, "confidence": 0.9}]}
 """
 
 CLAIMS_SWEEP_USER = """\
