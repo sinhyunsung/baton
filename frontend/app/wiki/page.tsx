@@ -51,6 +51,13 @@ export default function WikiTree() {
   useEffect(() => { api("/api/wiki/tree").then((r) => setPages(r.pages)).catch(() => {}); }, []);
 
   const tree = useMemo(() => buildTree(pages), [pages]);
+  // 처음엔 프로젝트(2뎁스)까지만 펼침 — 그 아래(담당자)는 접힌 채 시작
+  useEffect(() => {
+    const init = new Set<string>();
+    const walk = (n: Node) => { if (n.depth >= 2 && n.children.length) init.add(n.path); n.children.forEach(walk); };
+    tree.forEach(walk);
+    setCollapsed(init);
+  }, [tree]);
   // 선택 폴더의 페이지 = 그 폴더 + 모든 하위 폴더의 페이지
   const shown = (sel
     ? pages.filter((p) => p.folder_path === sel || p.folder_path.startsWith(sel + "/"))
