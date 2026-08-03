@@ -30,6 +30,15 @@ _CLAIMS_RULES = """\
 - 명제가 "~이다/한다"면 "positive", "~가 아니다/하지 않는다/금지/불가"면 "negative".
 - **object에 부정어를 넣지 않는다**: object="재택 불가" ❌ → object="재택근무 허용", polarity="negative" ⭕
 
+### assertion (주장 방식) — 이 문장이 값 하나를 더하는가, 전부라고 확정하는가
+- "add": 기본값. 값 하나를 말할 뿐 다른 값을 배제하지 않는다 ("API 개발은 이호준이 담당")
+- "set": **이게 전부라고 확정**하는 표현이 있을 때만. 신호어: 전담/단독/유일/혼자/~만/~뿐/전임
+  ("API 개발은 이호준이 전담" → 담당자 집합이 {이호준}뿐이라는 주장)
+- "remove": 값이 빠진다는 표현. 신호어: 빠짐/제외/해제/이관/인계/그만둠
+  ("이호준은 API 개발에서 빠집니다" → object="이호준", assertion="remove")
+- 신호어가 없으면 반드시 "add"다. 문서가 한 명만 언급했다는 이유로 "set"을 붙이지 않는다.
+- assertion="set"이어도 **object에는 값만** 넣는다: object="이호준 전담" ❌ → object="이호준", assertion="set" ⭕
+
 ### scope (적용 범위) — 이 값이 적용되는 조건
 - 대상 한정(부서·직급·고객사)이나 발동 조건(금액·상황): "개발팀 한정", "50만원 초과 지출", "장애 등급 P1"
 - 없으면 null. 문서 전체 맥락을 억지로 넣지 않는다.
@@ -80,15 +89,16 @@ _CLAIMS_RULES = """\
 출력 클레임:
 [
  {"subject": "정산 대사 배치 장애 대응", "predicate": "담당자", "object": "박세린", "polarity": "positive",
-  "scope": null, "time_scope": "2026-06-15부터", "claim_type": "rule",
+  "assertion": "add", "scope": null, "time_scope": "2026-06-15부터", "claim_type": "rule",
   "department": "개발", "owner": "박세린", "project": "정산 시스템", "confidence": 0.85},
  {"subject": "정산 대사 배치", "predicate": "실행 시각", "object": "새벽 2시", "polarity": "positive",
-  "scope": null, "time_scope": null, "claim_type": "rule",
+  "assertion": "add", "scope": null, "time_scope": null, "claim_type": "rule",
   "owner": "박세린", "project": "정산 시스템", "confidence": 0.85},
  {"subject": "환불 처리", "predicate": "승인 요건", "object": "COO 승인", "polarity": "positive",
-  "scope": "50만원 초과 환불 건", "time_scope": null, "claim_type": "rule",
+  "assertion": "add", "scope": "50만원 초과 환불 건", "time_scope": null, "claim_type": "rule",
   "owner": null, "project": "정산 시스템", "confidence": 0.85}
 ]
+(전부 "add"인 이유 — "맡습니다"는 신호어가 아니다. "박세린님이 **전담**합니다"였다면 첫 번째가 "set"이 된다)
 """
 
 PREPROCESS_AND_CLAIMS_SYSTEM = """\
@@ -119,7 +129,7 @@ PREPROCESS_AND_CLAIMS_SYSTEM = """\
 ## 출력(JSON만)
 {
   "chunks": [{"type": "text|table|image", "text": "..."}],
-  "claims": [{"subject": "...", "predicate": "...", "object": "...", "polarity": "positive",
+  "claims": [{"subject": "...", "predicate": "...", "object": "...", "polarity": "positive", "assertion": "add",
               "scope": null, "time_scope": null, "claim_type": "rule",
               "department": "개발" | null, "owner": "박세린" | null,
               "project": "정산 시스템" | null, "confidence": 0.9}]
@@ -151,7 +161,7 @@ CLAIMS_SWEEP_SYSTEM = """\
 - 한 번에 최대 30개까지만 출력한다 (더 있으면 중요한 것부터 — 반복 실행으로 마저 잡는다).
 
 출력(JSON만):
-{"claims": [{"subject": "...", "predicate": "...", "object": "...", "polarity": "positive",
+{"claims": [{"subject": "...", "predicate": "...", "object": "...", "polarity": "positive", "assertion": "add",
              "scope": null, "time_scope": null, "claim_type": "rule",
              "department": null, "owner": null, "project": null, "confidence": 0.9}]}
 """
@@ -177,7 +187,7 @@ CHUNK_CLAIMS_SYSTEM = """\
 
 ## 출력(JSON만 — chunks 없음, claims만)
 {
-  "claims": [{"subject": "...", "predicate": "...", "object": "...", "polarity": "positive",
+  "claims": [{"subject": "...", "predicate": "...", "object": "...", "polarity": "positive", "assertion": "add",
               "scope": null, "time_scope": null, "claim_type": "rule",
               "department": "개발" | null, "owner": "박세린" | null,
               "project": "정산 시스템" | null, "confidence": 0.9}]

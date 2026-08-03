@@ -210,6 +210,8 @@ def process_source(db: Session, src: RawSource) -> int:
                 claims.append(Claim(
                     subject=c["subject"], predicate=c.get("predicate", ""),
                     object=str(c["object"]), polarity=c.get("polarity", "positive"),
+                    # 모델이 값을 지어내면 add로 떨어뜨린다 — set은 배타 주장이라 잘못 붙으면 멀쩡한 값을 밀어낸다
+                    assertion=(c.get("assertion") if c.get("assertion") in ("add", "set", "remove") else "add"),
                     scope=c.get("scope"), time_scope=c.get("time_scope"),
                     claim_type=c.get("claim_type", "rule"),
                     department=_norm_department(c.get("department")),

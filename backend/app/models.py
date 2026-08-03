@@ -54,6 +54,9 @@ class Claim(Base):
     predicate: Mapped[str] = mapped_column(Text)
     object: Mapped[str] = mapped_column(Text)
     polarity: Mapped[str] = mapped_column(String(10), default="positive")
+    # 주장 방식: add(값 하나를 더함) | set(이게 전부라고 확정 — 전담·단독·~만) | remove(빠짐·해제·이관)
+    # 속성 사전의 cardinality와 함께 린트 판정표의 입력이 된다
+    assertion: Mapped[str] = mapped_column(String(8), default="add")
     scope: Mapped[str | None] = mapped_column(Text, nullable=True)
     time_scope: Mapped[str | None] = mapped_column(Text, nullable=True)
     claim_type: Mapped[str] = mapped_column(String(10), default="rule")  # rule | event
@@ -133,6 +136,20 @@ class ProjectTaxonomy(Base):
     canonical: Mapped[str] = mapped_column(String(120), index=True)
     evidence: Mapped[str] = mapped_column(String(20), default="cooccur")  # cooccur|owners|human|self
     human_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PredicateAttribute(Base):
+    """속성 사전: predicate → 값 개수 성질. 역질문 답변이 채우는 산출물이다 (미리 채우지 않는다).
+    ProjectTaxonomy와 같은 원칙 — human_confirmed=True 항목은 자동 로직이 절대 바꾸지 않는다."""
+    __tablename__ = "predicate_attributes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    predicate: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    cardinality: Mapped[str] = mapped_column(String(8), default="unknown")  # one|many|unknown
+    temporal: Mapped[bool] = mapped_column(Boolean, default=True)  # 시점 따라 바뀌는 속성인가 (노후 검사 대상)
+    human_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    answers: Mapped[int] = mapped_column(default=0)  # 이 속성에 대한 역질문 답변 횟수
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

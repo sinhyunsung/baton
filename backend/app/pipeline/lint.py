@@ -24,6 +24,7 @@ from .. import llm
 from ..config import PARALLEL_WORKERS, SIM_ELEMENT, SIM_SUBJECT_OWNER
 from ..db import SessionLocal
 from ..models import Claim, ClaimWikiLink, LintIssue, LintRun, WikiPage
+from .predicates import SKIP, cardinality_gate, get_cardinality, record_answer
 from .wiki import apply_page_update
 from ..prompts.lint import GAP_SYSTEM, VERDICT_SYSTEM
 
@@ -99,13 +100,25 @@ def run_lint(db: Session, progress: dict | None = None) -> LintRun:
                 pair = frozenset((claim.id, other.id))
                 if hint is None or pair in seen_pairs:
                     continue
+                # 속성 사전 판정표 — 값이 다른 쌍(owner·value)만 해당. polarity는 참/거짓이라 값 개수와 무관.
+                # many+add+add만 여기서 자르고, unknown은 LLM 판정으로 보내되 "clarify" 판정을 허용한다
+                # — 규칙만으로 자르면 "이호준 vs Week 3~4 일정" 같은 무관한 쌍까지 전부 역질문이 된다
+                cardinality = "one"
+                if hint in ("owner", "value"):
+                    cardinality = get_cardinality(db, claim.predicate)
+                    gate = cardinality_gate(cardinality, claim.assertion, other.assertion)
+                    if gate == SKIP:          # many + 둘 다 add → 공존. 모순 아님
+                        seen_pairs.add(pair)
+                        continue
                 seen_pairs.add(pair)
                 verdicts += 1
                 verdict_tasks.append({
                     "page_id": page.id, "a_id": claim.id, "b_id": other.id,
                     "a_view": _claim_view(claim), "b_view": _claim_view(other),
                     "hint": hint, "fallback_assignee": claim.owner or other.owner,
-                    "a_subject": claim.subject,
+                    "a_subject": claim.subject, "cardinality": cardinality,
+                    "predicate": claim.predicate,
+                    "a_object": claim.object, "b_object": other.object,
                 })
         # 빈틈: 페이지의 클레임 목록만 LLM에 (본문 아님)
         rules = [c for c in page_claims if c.claim_type == "rule" and not c.superseded]
@@ -125,7 +138,8 @@ def run_lint(db: Session, progress: dict | None = None) -> LintRun:
 
     def run_verdict(t: dict):
         v = llm.extract_json(VERDICT_SYSTEM, json.dumps(
-            {"A": t["a_view"], "B": t["b_view"]}, ensure_ascii=False))
+            {"A": t["a_view"], "B": t["b_view"],
+             "cardinality": t.get("cardinality", "one")}, ensure_ascii=False))
         return ("v", t, v)
 
     def run_gap(t: dict):
@@ -158,7 +172,27 @@ def run_lint(db: Session, progress: dict | None = None) -> LintRun:
 
     # ── C. 기록 ─────────────────────────────────────────────────────────────
     for t, v in verdict_results:
-        if v.get("verdict") != "conflict":
+        verdict = v.get("verdict")
+        if verdict == "clarify":
+            # 값 개수를 모르는 속성(unknown)에서 둘 다 유효할 수 있는 쌍 —
+            # 모순으로 단정하지 않고 사람에게 묻는다. 답변이 속성 사전을 채운다
+            options = [o for o in (v.get("options") or []) if o][:3]
+            both = "둘 다 유효 (함께)"
+            db.add(LintIssue(
+                issue_type="contradiction", page_id=t["page_id"],
+                claim_ids=[t["a_id"], t["b_id"]],
+                question=v.get("question") or (
+                    f"'{t['a_subject']}'의 {t.get('predicate') or '값'}이(가) "
+                    f"'{t['a_object']}'와 '{t['b_object']}' 두 가지로 나옵니다. "
+                    f"둘 다 유효한가요, 아니면 바뀐 건가요?"),
+                detail=f"[속성 확인] {v.get('reason', '')} — 답변이 속성 사전에 기록되어 다음부터는 자동 판정됩니다.",
+                options=[both] + (options or [t["a_object"], t["b_object"]]),
+                assignee_name=v.get("assignee") or t["fallback_assignee"],
+                meta={"kind": "cardinality", "predicate": t.get("predicate")},
+            ))
+            run.contradictions += 1
+            continue
+        if verdict != "conflict":
             continue
         kind = v.get("kind") or t["hint"]
         db.add(LintIssue(
@@ -270,7 +304,8 @@ MAX_VERDICTS_PER_PAGE = 12  # 페이지당 LLM 판정 상한 (표 문서 등에�
 
 def _claim_view(c: Claim) -> dict:
     return {"id": c.id, "text": c.rendered_text, "subject": c.subject, "predicate": c.predicate,
-            "object": c.object, "polarity": c.polarity, "owner": c.owner, "project": c.project,
+            "object": c.object, "polarity": c.polarity, "assertion": c.assertion,
+            "owner": c.owner, "project": c.project,
             "scope": c.scope, "time_scope": c.time_scope,
             "confidence": c.confidence, "human_confirmed": c.human_confirmed}
 
@@ -293,18 +328,27 @@ def answer_issue(db: Session, issue_id: int, answer: str) -> LintIssue:
 
     ans = answer.strip()
     confirmed_claim = None
+    meta = issue.meta or {}
+    # 속성 확인 질문: "둘 다 유효"면 두 클레임 모두 살리고 그 속성을 사전에 many로 기록.
+    # 하나를 고르면 기존 충돌 답변과 같게 처리하고 one으로 기록 — 사전은 이렇게 답변이 채운다
+    both_valid = meta.get("kind") == "cardinality" and any(
+        k in ans for k in ("둘 다", "함께", "모두", "복수"))
+    confirmed_count = 0
     for cid in issue.claim_ids or []:
         claim = db.get(Claim, cid)
         if not claim:
             continue
         # 값(object) 또는 담당자(owner)와 매칭 — 담당자 충돌 답변도 처리
         cands = [claim.object] + ([claim.owner] if claim.owner else [])
-        matched = any(ans in c or c in ans for c in cands if c)
+        matched = both_valid or any(ans in c or c in ans for c in cands if c)
         if matched:
             claim.human_confirmed = True
             confirmed_claim = claim
+            confirmed_count += 1
         else:
             claim.superseded = True
+    if meta.get("kind") == "cardinality" and confirmed_count:
+        record_answer(db, meta.get("predicate"), many=confirmed_count >= 2)
 
     issue.status = "answered"
     issue.answer = answer

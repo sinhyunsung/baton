@@ -19,6 +19,11 @@ def init_db() -> None:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         conn.commit()
     models.Base.metadata.create_all(engine)
+    # create_all은 기존 테이블에 새 컬럼을 못 더한다 — 데이터를 지우지 않고 붙이기 위한 최소 처치
+    with engine.connect() as conn:
+        conn.execute(text(
+            "ALTER TABLE claims ADD COLUMN IF NOT EXISTS assertion VARCHAR(8) DEFAULT 'add'"))
+        conn.commit()
 
 
 def get_session():
