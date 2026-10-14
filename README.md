@@ -5,7 +5,7 @@
 ## 실행
 
 ```bash
-cp .env.example .env   # AWS 자격증명 입력 (Bedrock us-east-1)
+cp .env.example .env   # DEEPSEEK_API_KEY · AWS 자격증명(Bedrock cohere 임베딩 전용, us-east-1)
 docker compose up -d --build
 ```
 
@@ -17,7 +17,7 @@ docker compose up -d --build
 
 ## 파이프라인
 
-수집(sha256 중복 제거·버전) → 전처리+클레임 추출(Sonnet 4.6, 문서당 1회) → 임베딩(cohere multilingual v3)
+수집(sha256 중복 제거·버전) → 전처리+클레임 추출(DeepSeek, 문서당 1회) → 임베딩(cohere multilingual v3)
 → **위키 갱신안**(사람이 승인해야 반영) → 배치 린트(모순·빈틈 → 확인 요청함 역질문) → 검색·챗봇(클레임 유사도 역추적)
 
 ## CLI
@@ -32,4 +32,4 @@ docker exec baton_backend python -m app.cli retry               # 실패 문서 
 ## 설계
 
 확정된 설계·규칙은 `/home/shs/batone/.claude/skills/baton-dev/SKILL.md` 참조 (개발 시 반드시 로드).
-비용 참고: 문서당 Sonnet 4.6 약 2회 호출 (전처리+클레임 1회, 위키 갱신안 1회). 988건 전체 ≈ $25~40.
+비용 참고: 문서당 DeepSeek 약 2회 호출 (전처리+클레임 1회, 위키 갱신안 1회). Bedrock 은 cohere 임베딩에만 쓴다 — Claude 경로는 지웠다 (2026-10-14).
