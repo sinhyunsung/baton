@@ -4,6 +4,8 @@ sqlalchemy>=2.0
 psycopg[binary]
 pgvector
 boto3
+# anthropic 을 빼면서 같이 빠졌다 — llm.py 가 DeepSeek 를 직접 부른다
+httpx
 pydantic
 python-dotenv
 typer
