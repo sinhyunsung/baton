@@ -1,9 +1,8 @@
 """LLM + 임베딩 래퍼. LLM 호출은 전부 이 모듈을 거친다.
 
-LLM 프로바이더는 BATON_LLM_PROVIDER 환경변수로 전환한다:
-- "bedrock"  : Claude (AnthropicBedrock)
-- "deepseek" : DeepSeek 직접 API (OpenAI 호환 /chat/completions, SSE 스트리밍)
-임베딩은 프로바이더와 무관하게 Bedrock cohere를 쓴다 (deepseek는 임베딩 API가 없다).
+생성 모델은 DeepSeek 직접 API 하나뿐이다 (OpenAI 호환 /chat/completions, SSE 스트리밍).
+Bedrock 생성 모델(Claude) 경로는 지웠다 — 허락 없이 Claude 비용이 나간 일이 있어 다시 켜질 길을
+남기지 않는다 (2026-10-14). 임베딩만 Bedrock cohere 를 쓴다 (deepseek 는 임베딩 API 가 없다).
 """
 import json
 import logging
@@ -12,7 +11,6 @@ import time
 
 import boto3
 import httpx
-from anthropic import AnthropicBedrock
 
 from .config import (
     AWS_REGION,
@@ -22,20 +20,17 @@ from .config import (
     DEEPSEEK_MODEL,
     DEEPSEEK_TEMPERATURE,
     EMBED_MODEL,
-    LLM_MODEL,
-    LLM_PROVIDER,
 )
 
 log = logging.getLogger("baton.llm")
 
-_client = AnthropicBedrock(aws_region=AWS_REGION)
 _bedrock_rt = boto3.client("bedrock-runtime", region_name=AWS_REGION)
 
 
 def _require_deepseek_key():
     if not DEEPSEEK_API_KEY:
         raise RuntimeError(
-            "BATON_LLM_PROVIDER=deepseek 인데 DEEPSEEK_API_KEY 가 없습니다. .env 에 키를 추가하세요."
+            "DEEPSEEK_API_KEY 가 없습니다. .env 에 키를 추가하세요."
         )
 
 
@@ -60,27 +55,19 @@ def _ds_body(system: str, user: str, max_tokens: int, stream: bool = False) -> d
 
 
 def _complete_once(system: str, user: str, max_tokens: int) -> str:
-    if LLM_PROVIDER == "deepseek":
-        _require_deepseek_key()
-        resp = httpx.post(
-            f"{DEEPSEEK_BASE_URL}/chat/completions",
-            headers=_ds_headers(),
-            json=_ds_body(system, user, max_tokens),
-            timeout=300,
-        )
-        resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
-        if not (content or "").strip():
-            # 고부하 시 200인데 빈 본문이 오는 경우가 있다 — 재시도 대상으로 승격
-            raise RuntimeError("DeepSeek 빈 응답 (요율 부하 추정)")
-        return content
-    resp = _client.messages.create(
-        model=LLM_MODEL,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": user}],
+    _require_deepseek_key()
+    resp = httpx.post(
+        f"{DEEPSEEK_BASE_URL}/chat/completions",
+        headers=_ds_headers(),
+        json=_ds_body(system, user, max_tokens),
+        timeout=300,
     )
-    return "".join(b.text for b in resp.content if b.type == "text")
+    resp.raise_for_status()
+    content = resp.json()["choices"][0]["message"]["content"]
+    if not (content or "").strip():
+        # 고부하 시 200인데 빈 본문이 오는 경우가 있다 — 재시도 대상으로 승격
+        raise RuntimeError("DeepSeek 빈 응답 (요율 부하 추정)")
+    return content
 
 
 def complete(system: str, user: str, max_tokens: int = 4096) -> str:
@@ -89,7 +76,7 @@ def complete(system: str, user: str, max_tokens: int = 4096) -> str:
         try:
             return _complete_once(system, user, max_tokens)
         except Exception as e:  # noqa: BLE001
-            log.warning("LLM 호출 실패(%d/3, %s): %s", attempt, LLM_PROVIDER, e)
+            log.warning("LLM 호출 실패(%d/3): %s", attempt, e)
             if attempt == 3:
                 raise
             time.sleep(wait)
@@ -98,34 +85,24 @@ def complete(system: str, user: str, max_tokens: int = 4096) -> str:
 
 def stream(system: str, user: str, max_tokens: int = 4096):
     """텍스트 스트리밍 제너레이터 (챗봇용)."""
-    if LLM_PROVIDER == "deepseek":
-        _require_deepseek_key()
-        with httpx.stream(
-            "POST",
-            f"{DEEPSEEK_BASE_URL}/chat/completions",
-            headers=_ds_headers(),
-            json=_ds_body(system, user, max_tokens, stream=True),
-            timeout=300,
-        ) as r:
-            r.raise_for_status()
-            for line in r.iter_lines():
-                if not line or not line.startswith("data:"):
-                    continue
-                data = line[5:].strip()
-                if data == "[DONE]":
-                    break
-                delta = json.loads(data)["choices"][0].get("delta", {})
-                if delta.get("content"):
-                    yield delta["content"]
-        return
-    with _client.messages.stream(
-        model=LLM_MODEL,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    ) as s:
-        for text in s.text_stream:
-            yield text
+    _require_deepseek_key()
+    with httpx.stream(
+        "POST",
+        f"{DEEPSEEK_BASE_URL}/chat/completions",
+        headers=_ds_headers(),
+        json=_ds_body(system, user, max_tokens, stream=True),
+        timeout=300,
+    ) as r:
+        r.raise_for_status()
+        for line in r.iter_lines():
+            if not line or not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            delta = json.loads(data)["choices"][0].get("delta", {})
+            if delta.get("content"):
+                yield delta["content"]
 
 
 def extract_json(system: str, user: str, max_tokens: int = 16000):

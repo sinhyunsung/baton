@@ -7,9 +7,7 @@ DATA_SOURCES_DIR = os.environ.get("DATA_SOURCES_DIR", "/data/sources")
 
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 
-# LLM 프로바이더: "bedrock" (Claude) | "deepseek" (직접 API, 저비용)
-LLM_PROVIDER = os.environ.get("BATON_LLM_PROVIDER", "bedrock").lower()
-LLM_MODEL = os.environ.get("BATON_LLM_MODEL", "us.anthropic.claude-sonnet-4-6")
+# 생성 모델은 DeepSeek 하나뿐이다. Bedrock Claude 경로는 지웠다 (2026-10-14)
 
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_MODEL = os.environ.get("BATON_DEEPSEEK_MODEL", "deepseek-v4-flash")
